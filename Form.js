@@ -5,15 +5,48 @@ function mainFormBuilder () {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+function classAlreadyExists(classCode) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const normalized = (classCode || '').toString().trim().toLowerCase();
+  if (!normalized) return false;
+
+  // Check from Form Logger first (source of created forms)
+  const formLogger = ss.getSheetByName('Form Logger');
+  if (formLogger && formLogger.getLastRow() >= 2) {
+    const values = formLogger.getRange(2, 3, formLogger.getLastRow() - 1, 1).getValues();
+    const existsInLogger = values.some(row => (row[0] || '').toString().trim().toLowerCase() === normalized);
+    if (existsInLogger) return true;
+  }
+
+  // Check from Class List as a secondary source
+  const classList = ss.getSheetByName('Class List');
+  if (classList && classList.getLastRow() >= 2) {
+    const values = classList.getRange(2, 1, classList.getLastRow() - 1, 1).getValues();
+    const existsInClassList = values.some(row => (row[0] || '').toString().trim().toLowerCase() === normalized);
+    if (existsInClassList) return true;
+  }
+
+  return false;
+}
+
 // build the form from 'form_' sheet
 function buildForm(subject, classCode, deadline, notes) {
+  const normalizedClassCode = (classCode || '').toString().trim();
+  if (!normalizedClassCode) {
+    throw new Error('Class không được để trống. Vui lòng nhập Class hợp lệ.');
+  }
+
+  if (classAlreadyExists(normalizedClassCode)) {
+    throw new Error(`Class "${normalizedClassCode}" đã tồn tại. Vui lòng dùng mã Class khác để tránh trùng dữ liệu ở Create Folder và Rules.`);
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("form_");
   const data = sheet.getDataRange().getValues();
   data.shift(); // remove header row
 
   // --- Create Form ---
-  const formTitle = subject + " - " + classCode;
+  const formTitle = subject + " - " + normalizedClassCode;
   const form = FormApp.create(formTitle)
     .setDescription(notes + "\nDeadline: " + deadline);
 
@@ -84,7 +117,7 @@ function buildForm(subject, classCode, deadline, notes) {
     logSheet.appendRow(["Timestamp", "Subject", "Class", "Publish URL", "Edit URL", "Folder URL", "Response Sheet"]);
     logSheet.getRange(1, 1, 1, 7).setFontWeight("bold").setBackground("#d9ead3");
   }
-  logSheet.appendRow([new Date(), subject, classCode, publishUrl, editUrl, formFolder.getUrl(), responseSs.getUrl()]);
+  logSheet.appendRow([new Date(), subject, normalizedClassCode, publishUrl, editUrl, formFolder.getUrl(), responseSs.getUrl()]);
 
   return publishUrl; // return form link
 }

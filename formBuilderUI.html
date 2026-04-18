@@ -152,7 +152,7 @@
       <input type="text" id="classCode" value="COMP1314">
 
       <label>Form closing date:</label>
-      <input type="date" id="deadline" value="2025-09-30">
+      <input type="date" id="deadline">
 
       <label>Notes:</label>
       <textarea id="note" rows="3">Form created automatically. Please complete before deadline.</textarea>
@@ -178,6 +178,14 @@
     </div>
 
     <script>
+        // Set default date in a valid HTML/JS way for Apps Script HtmlService
+        document.addEventListener('DOMContentLoaded', function() {
+          const deadlineInput = document.getElementById('deadline');
+          if (deadlineInput) {
+            deadlineInput.value = new Date().toISOString().split('T')[0];
+          }
+        });
+
         // create new form
         function create_new_form() {
           const subject = document.getElementById('subject').value;

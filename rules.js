@@ -13,8 +13,8 @@ function getClassList() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Rules');
   if (!sheet) return [];
 
-  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues(); // cột CLASSNAME
-  const classes = [...new Set(data.map(r => r[0]).filter(c => c))];
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues(); // cột CLASSNAME
+  const classes = [...new Set(data.map(r => (r[0] || '').toString().trim()).filter(c => c))];
   return classes;
 }
 
@@ -49,9 +49,9 @@ function getRulesDataByClass(classname) {
     const rowNum = i + 2;
     const row = values[i];
     const displayRow = displayValues[i];
-    const classnameVal = row[classIdx];
+    const classnameText = (displayRow[classIdx] || '').toString().trim();
 
-    if (classnameVal !== classname) continue;
+    if (classnameText !== classname) continue;
 
     const number = Number(row[numberIdx]) || 0;
     const files = [];
@@ -74,8 +74,8 @@ function getRulesDataByClass(classname) {
 
     out.push({
       row: rowNum,
-      classname: classnameVal.toString(),
-      folder: row[folderIdx].toString(),
+      classname: classnameText,
+      folder: (displayRow[folderIdx] || '').toString().trim(),
       number: number,
       files: files // Trả về mảng chi tiết các file
     });

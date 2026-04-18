@@ -83,7 +83,10 @@ function writeClassTree(classname, obj) {
   }
 
   // ====== GHI DỮ LIỆU VÀO SHEET (an toàn) ======
-  sheet.getRange(startRow, 1, rows.length, maxDepth + 2).setValues(rows);
+  const writeRange = sheet.getRange(startRow, 1, rows.length, maxDepth + 2);
+  // Force text format so values like "4.1" are not auto-converted to dates.
+  writeRange.setNumberFormat('@');
+  writeRange.setValues(rows);
   sheet.autoResizeColumns(1, maxDepth + 2);
 
   // ====== THU THẬP TẤT CẢ NODE (kể cả node cha) an toàn ======
@@ -128,7 +131,10 @@ function writeClassTree(classname, obj) {
 
   if (newRows.length > 0) {
     const start = ruleSheet.getLastRow() + 1;
-    ruleSheet.getRange(start, 1, newRows.length, 2).setValues(newRows);
+    const rulesRange = ruleSheet.getRange(start, 1, newRows.length, 2);
+    // Keep Class/Folder columns as text to avoid values like "4.1" becoming dates.
+    rulesRange.setNumberFormat('@');
+    rulesRange.setValues(newRows);
     ruleSheet.autoResizeColumns(1, 2);
     Logger.log(`✅ Đã thêm ${newRows.length} node lá vào Rules`);
   } else {
@@ -1157,7 +1163,10 @@ function updateClassTreeSheet(classname, obj) {
   // Ghi tất cả rows vào sheet
   if (allRows.length > 0) {
     const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, allRows.length, requiredCols).setValues(allRows);
+    const writeRange = sheet.getRange(startRow, 1, allRows.length, requiredCols);
+    // Keep folder names as plain text (avoid Date coercion for names like "4.1").
+    writeRange.setNumberFormat('@');
+    writeRange.setValues(allRows);
     Logger.log(`✅ Đã ghi ${allRows.length} dòng mới cho class ${classname}`);
   }
 
@@ -1255,7 +1264,10 @@ function updateRulesForClass(classname, obj) {
   if (foldersToAdd.length > 0) {
     const newRows = foldersToAdd.map(name => [classname, name, ""]);
     const start = ruleSheet.getLastRow() + 1;
-    ruleSheet.getRange(start, 1, newRows.length, 3).setValues(newRows);
+    const writeRange = ruleSheet.getRange(start, 1, newRows.length, 3);
+    // Force first 2 columns as text (Class, Folder), keep Number of file as general.
+    writeRange.offset(0, 0, newRows.length, 2).setNumberFormat('@');
+    writeRange.setValues(newRows);
     ruleSheet.autoResizeColumns(1, 3);
     Logger.log(`✅ Đã thêm ${newRows.length} rules mới`);
   }
@@ -1513,7 +1525,8 @@ function sheetToObjectByClassname(classname = 'IE107') {
   const sheet = ss.getSheetByName("Create Folder");
   if (!sheet) return [];
 
-  const data = sheet.getDataRange().getValues();
+  // Use display values to avoid Date objects being returned for text-like folder names.
+  const data = sheet.getDataRange().getDisplayValues();
   if (data.length < 2) return [];
 
   const header = data[0];
@@ -1527,7 +1540,7 @@ function sheetToObjectByClassname(classname = 'IE107') {
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
 
-    if (row.every(cell => cell === "")) continue;
+    if (row.every(cell => !cell || cell.toString().trim() === "")) continue;
 
     if (row[classnameCol] && row[classnameCol].toString().trim() !== "") {
       currentClass = row[classnameCol].toString().trim();

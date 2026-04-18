@@ -641,6 +641,30 @@ function getGroupFolderInfo(classname, groupName) {
 }
 
 /**
+ * Tìm folder theo tên trong cây thư mục và trả về cả đường dẫn.
+ */
+function findFolderByNameWithPath(parentFolder, targetName, pathParts = []) {
+  const folders = parentFolder.getFolders();
+
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    const currentPath = pathParts.concat(folder.getName());
+
+    if (folder.getName() === targetName) {
+      return {
+        folder: folder,
+        path: currentPath
+      };
+    }
+
+    const found = findFolderByNameWithPath(folder, targetName, currentPath);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+/**
  * Lấy rules data cho nhóm từ Rules sheet
  */
 function getGroupRulesData(classname, groupName) {
@@ -651,28 +675,48 @@ function getGroupRulesData(classname, groupName) {
     if (!rulesSheet) return [];
 
     const data = rulesSheet.getDataRange().getValues();
+    const displayData = rulesSheet.getDataRange().getDisplayValues();
     if (data.length < 2) return [];
 
     const header = data[0].map(h => (h || '').toString().toLowerCase().trim());
-    // Based on your Rules sheet: "Class name Folder", "Number of file", "File type 1", etc.
-    const classnameCol = header.indexOf('class name folder') !== -1 ? header.indexOf('class name folder') :
-      (header.indexOf('class name') !== -1 ? header.indexOf('class name') : 0);
-    const folderCol = classnameCol; // Same column contains both class name and folder
+    const classnameCol = header.indexOf('class name');
+    const folderCol = header.indexOf('folder');
     const numberCol = header.indexOf('number of file') !== -1 ? header.indexOf('number of file') :
-      (header.indexOf('number of files') !== -1 ? header.indexOf('number of files') : 1);
+      (header.indexOf('number of files') !== -1 ? header.indexOf('number of files') : 2);
+
+    if (classnameCol === -1 || folderCol === -1) {
+      Logger.log(`Rules header invalid: ${JSON.stringify(header)}`);
+      return [];
+    }
+
+    const root = getSpreadsheetParent();
+    const userprofile = getOrCreateFolder(root, "userprofile");
+    const classFolder = getOrCreateFolder(userprofile, classname);
+    const groupIter = classFolder.getFoldersByName(groupName);
+    const groupFolder = groupIter.hasNext() ? groupIter.next() : null;
 
     const rules = [];
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
+      const displayRow = displayData[i];
 
-      if (row[classnameCol] === classname) {
-        const folderName = row[folderCol];
+      if ((displayRow[classnameCol] || '').toString().trim() === classname) {
+        const folderName = (displayRow[folderCol] || '').toString().trim();
         const numberOfFiles = row[numberCol] || 0;
 
         if (numberOfFiles > 0) {
+          let folderPath = folderName;
+          if (groupFolder && folderName) {
+            const found = findFolderByNameWithPath(groupFolder, folderName, [groupFolder.getName()]);
+            if (found && found.path && found.path.length > 0) {
+              folderPath = found.path.join(' / ');
+            }
+          }
+
           const ruleData = {
             folder: folderName,
+            folderPath: folderPath,
             numberOfFiles: numberOfFiles,
             requirements: []
           };
@@ -774,10 +818,12 @@ function buildFolderEmailContent(classname, groupName, folderData, rulesData) {
     `;
 
     rulesData.forEach((rule, ruleIndex) => {
+      const folderTitle = rule.folder || 'Not specified';
+      const folderPath = rule.folderPath || folderTitle;
       emailHtml += `
           <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #fbbc04;">
             <h5 style="margin: 0 0 15px 0; color: #202124; font-size: 16px;">
-              ${rule.folder} 
+              ${folderTitle} 
               <span style="background: #fbbc04; color: #202124; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px;">
                 ${rule.numberOfFiles} file${rule.numberOfFiles > 1 ? 's' : ''}
               </span>
@@ -794,11 +840,19 @@ function buildFolderEmailContent(classname, groupName, folderData, rulesData) {
             <div style="background: white; padding: 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #dadce0;">
               <div style="display: flex; align-items: center; margin-bottom: 8px;">
                 <span style="background: #1a73e8; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; margin-right: 8px;">
-                  FILE ${index + 1}
+                  ${folderTitle} - FILE ${index + 1}
                 </span>
                 ${isUrgent ? '<span style="background: #ea4335; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px;">DUE SOON</span>' : ''}
               </div>
               <table style="width: 100%; font-size: 14px;">
+                <tr>
+                  <td style="padding: 4px 0; color: #5f6368; width: 120px;"><strong>Folder:</strong></td>
+                  <td style="padding: 4px 0;"><strong>${folderTitle}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px 0; color: #5f6368; width: 120px;"><strong>Folder Path:</strong></td>
+                  <td style="padding: 4px 0; color: #202124;">${folderPath}</td>
+                </tr>
                 <tr>
                   <td style="padding: 4px 0; color: #5f6368; width: 120px;"><strong>File Type:</strong></td>
                   <td style="padding: 4px 0;"><code style="background: #f1f3f4; padding: 2px 8px; border-radius: 4px;">${req.fileType || 'Not specified'}</code></td>
@@ -848,6 +902,132 @@ function buildFolderEmailContent(classname, groupName, folderData, rulesData) {
   return emailHtml;
 }
 
+function _toDateOnly(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function _dateDiffInDays(targetDate, baseDate) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((_toDateOnly(targetDate) - _toDateOnly(baseDate)) / msPerDay);
+}
+
+function normalizeRequiredExtension(fileType) {
+  const raw = (fileType || '').toString().trim().toLowerCase();
+  if (!raw) return '';
+
+  const match = raw.match(/\.([a-z0-9]+)$/i);
+  if (match) return `.${match[1].toLowerCase()}`;
+
+  if (raw.startsWith('.')) return raw;
+  return `.${raw.replace(/^\*+/, '').replace(/^\./, '')}`;
+}
+
+function analyzeMissingFilesForReminder(classname, groupName, folderName, ruleRow, numberOfFiles, today) {
+  try {
+    const root = getSpreadsheetParent();
+    const userprofile = getOrCreateFolder(root, "userprofile");
+    const classFolder = getOrCreateFolder(userprofile, classname);
+    const groupFolders = classFolder.getFoldersByName(groupName);
+    if (!groupFolders.hasNext()) {
+      return { shouldRemind: false, reason: `Group folder not found: ${groupName}`, missingFiles: [] };
+    }
+
+    const groupFolder = groupFolders.next();
+    const targetFolder = findFolderByName(groupFolder, folderName);
+    if (!targetFolder) {
+      return { shouldRemind: false, reason: `Target folder not found: ${folderName}`, missingFiles: [] };
+    }
+
+    const requirementsByExt = {};
+    for (let j = 1; j <= numberOfFiles; j++) {
+      const fileTypeCol = 3 + (j - 1) * 3;
+      const reqCol = fileTypeCol + 1;
+      const dueCol = fileTypeCol + 2;
+
+      const fileType = ruleRow[fileTypeCol] || '';
+      const requirement = ruleRow[reqCol] || '';
+      const dueDate = ruleRow[dueCol] instanceof Date ? ruleRow[dueCol] : null;
+
+      const ext = normalizeRequiredExtension(fileType);
+      if (!ext) continue;
+
+      if (!requirementsByExt[ext]) requirementsByExt[ext] = [];
+      requirementsByExt[ext].push({
+        type: fileType || ext,
+        requirement: requirement,
+        dueDate: dueDate
+      });
+    }
+
+    const actualCounts = {};
+    const actualFileNames = [];
+    const files = targetFolder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName();
+      actualFileNames.push(fileName);
+      const lower = fileName.toLowerCase();
+      const dot = lower.lastIndexOf('.');
+      if (dot === -1) continue;
+      const ext = lower.substring(dot);
+      actualCounts[ext] = (actualCounts[ext] || 0) + 1;
+    }
+
+    const missingFiles = [];
+    let nearestDueDate = null;
+
+    Object.keys(requirementsByExt).forEach(ext => {
+      const reqList = requirementsByExt[ext];
+      const requiredCount = reqList.length;
+      const actualCount = actualCounts[ext] || 0;
+
+      if (actualCount >= requiredCount) return;
+
+      const missingCount = requiredCount - actualCount;
+      const sortedByDue = reqList.slice().sort((a, b) => {
+        if (!a.dueDate && !b.dueDate) return 0;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return a.dueDate - b.dueDate;
+      });
+
+      // Ambiguous match for same extension: assume missing slots are earliest due ones.
+      const missingSlots = sortedByDue.slice(0, missingCount);
+      missingSlots.forEach(slot => {
+        if (slot.dueDate && (!nearestDueDate || slot.dueDate < nearestDueDate)) {
+          nearestDueDate = slot.dueDate;
+        }
+        missingFiles.push({
+          type: slot.type || ext,
+          requirement: slot.requirement || `Missing required file (${ext})`,
+          dueDate: slot.dueDate,
+          missing: true,
+          filesFound: actualFileNames
+        });
+      });
+    });
+
+    if (missingFiles.length === 0) {
+      return { shouldRemind: false, reason: 'No missing files by count', missingFiles: [] };
+    }
+
+    if (!nearestDueDate) {
+      return { shouldRemind: false, reason: 'Missing files have no due date', missingFiles: missingFiles };
+    }
+
+    const daysUntilNearestDue = _dateDiffInDays(nearestDueDate, today);
+    return {
+      shouldRemind: daysUntilNearestDue === 1,
+      nearestDueDate: nearestDueDate,
+      missingFiles: missingFiles,
+      reason: `Nearest missing due in ${daysUntilNearestDue} day(s)`
+    };
+
+  } catch (error) {
+    return { shouldRemind: false, reason: error.message, missingFiles: [] };
+  }
+}
+
 /**
  * Tự động kiểm tra và gửi reminder emails - Updated with debug logic
  */
@@ -873,12 +1053,10 @@ function checkAndSendReminderEmails() {
     const header = data[0].map(h => (h || '').toString().toLowerCase().replace(/\s+/g, ''));
     Logger.log(`Header columns (normalized): ${header.join(', ')}`);
 
-    // Based on your Rules sheet: "Class name Folder", "Number of file", "File type 1", etc.
-    const classnameCol = header.indexOf('classnamefolder') !== -1 ? header.indexOf('classnamefolder') :
-      (header.indexOf('classname') !== -1 ? header.indexOf('classname') : 0);
-    const folderCol = classnameCol; // Same column contains both class name and folder
+    const classnameCol = header.indexOf('classname') !== -1 ? header.indexOf('classname') : 0;
+    const folderCol = header.indexOf('folder') !== -1 ? header.indexOf('folder') : 1;
     const numberCol = header.indexOf('numberoffile') !== -1 ? header.indexOf('numberoffile') :
-      (header.indexOf('numberoffiles') !== -1 ? header.indexOf('numberoffiles') : 1);
+      (header.indexOf('numberoffiles') !== -1 ? header.indexOf('numberoffiles') : 2);
 
     if (classnameCol === -1 || folderCol === -1 || numberCol === -1) {
       Logger.log('ERROR: Required columns not found in Rules sheet');
@@ -896,8 +1074,9 @@ function checkAndSendReminderEmails() {
     // Duyệt qua tất cả rules
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      const classname = row[classnameCol];
-      const folderName = row[folderCol];
+      const displayRow = rulesSheet.getRange(i + 1, 1, 1, rulesSheet.getLastColumn()).getDisplayValues()[0];
+      const classname = (displayRow[classnameCol] || '').toString().trim();
+      const folderName = (displayRow[folderCol] || '').toString().trim();
       const numberOfFiles = row[numberCol] || 0;
 
       Logger.log(`Row ${i}: Class=${classname}, Folder=${folderName}, Files=${numberOfFiles}`);
@@ -909,62 +1088,39 @@ function checkAndSendReminderEmails() {
 
       validRules++;
 
-      // Kiểm tra từng requirement sử dụng logic debug
-      for (let j = 1; j <= numberOfFiles; j++) {
-        const dueDateCol = 3 + (j - 1) * 3 + 2; // Due date column (adjusted from debug logic)
-        const dueDate = row[dueDateCol];
+      try {
+        const groups = getGroupsByClass(classname);
+        Logger.log(`    Groups in ${classname}: ${groups.join(', ')}`);
 
-        Logger.log(`  File ${j}: Due date column ${dueDateCol}, Value: ${dueDate}, Type: ${typeof dueDate}`);
+        groups.forEach(groupName => {
+          totalChecks++;
+          Logger.log(`      Checking group: ${groupName}`);
 
-        if (dueDate && dueDate instanceof Date) {
-          const daysDiff = Math.floor((dueDate - today) / (1000 * 60 * 60 * 24));
-          Logger.log(`    Days until due: ${daysDiff}`);
+          const analysis = analyzeMissingFilesForReminder(
+            classname,
+            groupName,
+            folderName,
+            row,
+            numberOfFiles,
+            today
+          );
 
-          // Nếu còn 1 ngày
-          if (daysDiff === 1) {
-            Logger.log(`    -> Due tomorrow! Checking groups...`);
+          Logger.log(`      Missing analysis: ${JSON.stringify(analysis)}`);
 
-            try {
-              // Sử dụng logic đã verify từ debug functions
-              const groups = getGroupsByClass(classname);
-              Logger.log(`    Groups in ${classname}: ${groups.join(', ')}`);
-
-              groups.forEach(groupName => {
-                totalChecks++;
-                Logger.log(`      Checking group: ${groupName}`);
-
-                // Sử dụng debug logic đã hoạt động tốt
-                const missingFiles = debugCheckMissingFiles(classname, groupName, folderName, row, j);
-                Logger.log(`      Missing files result: ${JSON.stringify(missingFiles)}`);
-
-                if (missingFiles.length > 0) {
-                  // Chỉ thêm reminder nếu thực sự có files thiếu
-                  const hasRealMissingFiles = missingFiles.some(f =>
-                    f.missing === true ||
-                    (typeof f === 'string' && !f.includes('Error'))
-                  );
-
-                  if (hasRealMissingFiles) {
-                    reminders.push({
-                      classname: classname,
-                      groupName: groupName,
-                      folderName: folderName,
-                      dueDate: dueDate,
-                      missingFiles: missingFiles,
-                      fileIndex: j
-                    });
-                    Logger.log(`      -> Added reminder for ${groupName} (${missingFiles.length} missing files)`);
-                  }
-                }
-              });
-
-            } catch (groupError) {
-              Logger.log(`    ERROR getting groups for ${classname}: ${groupError.message}`);
-            }
+          if (analysis.shouldRemind) {
+            reminders.push({
+              classname: classname,
+              groupName: groupName,
+              folderName: folderName,
+              dueDate: analysis.nearestDueDate,
+              missingFiles: analysis.missingFiles
+            });
+            Logger.log(`      -> Added reminder for ${groupName} (${analysis.missingFiles.length} missing files)`);
           }
-        } else {
-          Logger.log(`    -> Invalid or missing due date`);
-        }
+        });
+
+      } catch (groupError) {
+        Logger.log(`    ERROR getting groups for ${classname}: ${groupError.message}`);
       }
     }
 
@@ -975,14 +1131,22 @@ function checkAndSendReminderEmails() {
 
     // Gửi reminder emails
     let emailsSent = 0;
+    const sendErrors = [];
     reminders.forEach((reminder, index) => {
       Logger.log(`Sending reminder ${index + 1}/${reminders.length}: ${reminder.classname}/${reminder.groupName}`);
 
       try {
-        sendReminderEmail(reminder);
-        emailsSent++;
-        Logger.log(`  -> Email sent successfully`);
+        const sendResult = sendReminderEmail(reminder);
+        if (sendResult && sendResult.success) {
+          emailsSent += sendResult.sentCount || 0;
+          Logger.log(`  -> Email sent successfully to ${sendResult.sentCount || 0} recipient(s)`);
+        } else {
+          const err = sendResult && sendResult.error ? sendResult.error : 'unknown error';
+          sendErrors.push(`${reminder.classname}/${reminder.groupName}/${reminder.folderName}: ${err}`);
+          Logger.log(`  -> Email not sent: ${err}`);
+        }
       } catch (emailError) {
+        sendErrors.push(`${reminder.classname}/${reminder.groupName}/${reminder.folderName}: ${emailError.message}`);
         Logger.log(`  -> Failed to send email: ${emailError.message}`);
       }
     });
@@ -990,13 +1154,17 @@ function checkAndSendReminderEmails() {
     Logger.log(`=== AUTOMATIC REMINDER CHECK COMPLETED ===`);
     Logger.log(`Total emails sent: ${emailsSent}/${reminders.length}`);
 
+    const summaryText = sendErrors.length > 0
+      ? `Sent ${emailsSent} reminder emails out of ${reminders.length} needed. Errors: ${sendErrors.join(' | ')}`
+      : `Sent ${emailsSent} reminder emails out of ${reminders.length} needed`;
+
     return {
       success: true,
       count: emailsSent,
       totalReminders: reminders.length,
       validRules: validRules,
       totalChecks: totalChecks,
-      summary: `Sent ${emailsSent} reminder emails out of ${reminders.length} needed`
+      summary: summaryText
     };
 
   } catch (error) {
@@ -1090,7 +1258,7 @@ function sendReminderEmail(reminder) {
 
     if (members.length === 0) {
       Logger.log(`No members found for group ${reminder.groupName}`);
-      return;
+      return { success: false, sentCount: 0, error: `No members found for ${reminder.classname}/${reminder.groupName}` };
     }
 
     // Build missing files list from debug results
@@ -1115,8 +1283,22 @@ function sendReminderEmail(reminder) {
 
     if (missingCount === 0) {
       Logger.log(`No actual missing files found, skipping email for ${reminder.groupName}`);
-      return;
+      return { success: false, sentCount: 0, error: 'No missing files found' };
     }
+
+    const folderInfo = findGroupAssignmentFolder(reminder.classname, reminder.groupName, reminder.folderName);
+    const folderUrl = folderInfo && folderInfo.folder ? folderInfo.folder.getUrl() : '';
+
+    const formatDate = (date) => {
+      if (!date) return '';
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
 
     const emailContent = `
       <!DOCTYPE html>
@@ -1159,11 +1341,12 @@ function sendReminderEmail(reminder) {
           </div>
           
           <div style="text-align: center; margin: 25px 0;">
+            ${folderUrl ? `
             <a href="${folderUrl}" 
                target="_blank"
                style="display: inline-block; background: #34a853; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
               OPEN FOLDER NOW
-            </a>
+            </a>` : `<span style="color:#ea4335;font-weight:bold;">Folder link not available</span>`}
           </div>
           
           <div style="background: #e8f0fe; border: 2px solid #1a73e8; padding: 20px; border-radius: 8px; margin: 15px 0;">
@@ -1193,44 +1376,58 @@ function sendReminderEmail(reminder) {
       </html>
     `;
 
-    // Format ngày giờ theo tiếng Anh
-    const formatDate = (date) => {
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    };
-
-    // Gửi email cho từng thành viên với MailApp
+    // Gửi email cho từng thành viên bằng cùng logic với Send Folder Links
     let emailCount = 0;
+    const failedEmails = [];
     members.forEach(email => {
-      if (email && email.trim() && email.includes('@')) {
+      const emailAddress = (email || '').toString().trim();
+      if (emailAddress && emailAddress.includes('@')) {
         try {
-          Logger.log(`Sending reminder email to: ${email}`);
+          Logger.log(`Sending reminder email to: ${emailAddress}`);
 
-          MailApp.sendEmail({
-            to: email.trim(),
+          const result = sendEmailViaGmail({
+            to: emailAddress,
             subject: `URGENT: Assignment Due Tomorrow - ${reminder.classname} - ${reminder.folderName}`,
             htmlBody: emailContent,
-            charset: 'UTF-8'
           });
 
-          emailCount++;
-          Logger.log(`Reminder email sent successfully to ${email}`);
+          if (result && result.success) {
+            emailCount++;
+            Logger.log(`Reminder email sent successfully to ${emailAddress}`);
+          } else {
+            const errMsg = result && result.error ? result.error : 'Unknown sendEmailViaGmail error';
+            failedEmails.push(`${emailAddress} (${errMsg})`);
+            Logger.log(`Failed to send reminder to ${emailAddress}: ${errMsg}`);
+          }
 
         } catch (e) {
-          Logger.log(`Failed to send reminder to ${email}: ${e.message}`);
+          failedEmails.push(`${emailAddress} (${e.message})`);
+          Logger.log(`Failed to send reminder to ${emailAddress}: ${e.message}`);
         }
+      } else {
+        Logger.log(`Skipping invalid reminder recipient: ${emailAddress}`);
       }
     });
 
     Logger.log(`Sent reminder email to ${emailCount}/${members.length} members for ${reminder.groupName}`);
+    if (emailCount === 0) {
+      const detail = failedEmails.length > 0 ? ` | Failed: ${failedEmails.join('; ')}` : '';
+      return {
+        success: false,
+        sentCount: 0,
+        error: `No email was sent for ${reminder.classname}/${reminder.groupName}${detail}`
+      };
+    }
+    return {
+      success: true,
+      sentCount: emailCount,
+      totalMembers: members.length,
+      failedEmails: failedEmails
+    };
 
   } catch (error) {
     Logger.log(`Error sending reminder email: ${error.message}`);
+    return { success: false, sentCount: 0, error: error.message };
   }
 }
 
@@ -1270,13 +1467,15 @@ function getGroupsByClass(classname) {
     const sheet = ss.getSheetByName('Class List');
     if (!sheet) return [];
 
-    const data = sheet.getDataRange().getValues();
+    const data = sheet.getDataRange().getDisplayValues();
     if (data.length < 2) return [];
 
     const groups = new Set();
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === classname && data[i][1]) {
-        groups.add(data[i][1]);
+      const rowClass = (data[i][0] || '').toString().trim();
+      const rowGroup = (data[i][1] || '').toString().trim();
+      if (rowClass === classname.toString().trim() && rowGroup) {
+        groups.add(rowGroup);
       }
     }
 
@@ -1301,7 +1500,7 @@ function getGroupMembers(classname, groupName) {
       return [];
     }
 
-    const data = sheet.getDataRange().getValues();
+    const data = sheet.getDataRange().getDisplayValues();
     if (data.length < 2) {
       Logger.log('ERROR: Class List sheet is empty');
       return [];
@@ -1311,33 +1510,44 @@ function getGroupMembers(classname, groupName) {
 
     // Lấy tất cả emails từ các rows matching classname và groupName
     const allEmails = [];
+    const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       const rowClass = row[0] ? row[0].toString().trim() : '';
       const rowGroup = row[1] ? row[1].toString().trim() : '';
 
-      if (rowClass === classname && rowGroup === groupName) {
+      if (rowClass === classname.toString().trim() && rowGroup === groupName.toString().trim()) {
         Logger.log(`  Found matching row ${i + 1}: ${rowClass} - ${rowGroup}`);
 
-        // Email columns theo cấu trúc Class List:
-        // Column E (index 4): Leader email
-        // Column H (index 7): Member 1 email
-        // Column K (index 10): Member 2 email
-        // Column N (index 13): Member 3 email
+        // Ưu tiên cấu trúc cột cũ, sau đó fallback quét toàn dòng để tránh lệch layout.
         const emailColumns = [4, 7, 10, 13];
+        let foundAnyEmail = false;
 
         emailColumns.forEach((colIndex, position) => {
           if (row[colIndex]) {
             const email = row[colIndex].toString().trim();
-            if (email && email.includes('@')) {
+            if (email && emailPattern.test(email)) {
               allEmails.push(email);
+              foundAnyEmail = true;
               Logger.log(`    Position ${position + 1}: ${email}`);
             } else if (email) {
               Logger.log(`    Position ${position + 1}: Invalid email format: "${email}"`);
             }
           }
         });
+
+        if (!foundAnyEmail) {
+          Logger.log('    No emails found in fixed columns, fallback scan entire row');
+          for (let col = 2; col < row.length; col++) {
+            const cell = (row[col] || '').toString().trim();
+            if (cell && emailPattern.test(cell)) {
+              allEmails.push(cell);
+              foundAnyEmail = true;
+              Logger.log(`    Fallback email found in col ${col + 1}: ${cell}`);
+            }
+          }
+        }
       }
     }
 
