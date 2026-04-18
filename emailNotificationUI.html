@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Email Notification System</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+      margin: 0;
+      padding: 12px;
+      background: #f5f5f7;
+      color: #202124;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    h3 {
+      margin: 0 0 12px 0;
+      color: #1a73e8;
+      font-size: 16px;
+    }
+
+    label {
+      display: block;
+      margin: 10px 0 4px 0;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+
+    select:focus, input:focus {
+      border-color: #1a73e8;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.2);
+    }
+
+    .btn {
+      background: #1a73e8;
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+      transition: background 0.2s;
+    }
+
+    .btn:hover {
+      background: #1558b0;
+    }
+
+    .btn:disabled {
+      background: #dadce0;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #34a853;
+    }
+
+    .btn-secondary:hover {
+      background: #2d8f47;
+    }
+
+    .btn-warning {
+      background: #fbbc04;
+      color: #202124;
+    }
+
+    .btn-warning:hover {
+      background: #f9ab00;
+    }
+
+    .checkbox-group {
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      padding: 8px;
+      background: #fafafa;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      margin: 4px 0;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+    }
+
+    .status {
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .status.loading {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+
+    .toggle-section {
+      cursor: pointer;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      margin: 8px 0;
+      border: 1px solid #e0e0e0;
+    }
+
+    .toggle-section:hover {
+      background: #e8f0fe;
+    }
+
+    .section-content {
+      display: none;
+      margin-top: 10px;
+    }
+
+    .section-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3>📧 Send Folder Links</h3>
+    
+    <label for="classSelect">Select Class:</label>
+    <select id="classSelect" onchange="loadGroups()">
+      <option value="">Loading classes...</option>
+    </select>
+
+    <label for="groupSelection">Select Groups:</label>
+    <div class="checkbox-group" id="groupCheckboxes">
+      <p style="color: #666; font-style: italic;">Please select a class first</p>
+    </div>
+
+    <button class="btn" onclick="sendFolderEmails()" id="sendBtn" disabled>
+      📧 Send Folder Links to Selected Groups
+    </button>
+
+    <div id="sendStatus"></div>
+  </div>
+
+  <div class="card">
+    <div class="toggle-section" onclick="toggleSection('reminderSection')">
+      <h3>⏰ Test Reminder System</h3>
+    </div>
+    <div class="section-content" id="reminderSection">
+      <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
+        Test reminder emails for assignments due tomorrow. Check for missing files and send reminder emails immediately.
+      </p>
+
+      <button class="btn btn-warning" onclick="testReminders()">
+        � Send Reminder Emails Now (Test)
+      </button>
+
+      <div id="reminderStatus"></div>
+    </div>
+  </div>
+
+  <script>
+    let allGroups = [];
+    
+    // Load classes on page load
+    google.script.run
+      .withSuccessHandler(function(classes) {
+        const classSelect = document.getElementById('classSelect');
+        
+        classSelect.innerHTML = '<option value="">Select a class</option>';
+        
+        classes.forEach(cls => {
+          const option1 = document.createElement('option');
+          option1.value = cls;
+          option1.textContent = cls;
+          classSelect.appendChild(option1);
+        });
+      })
+      .getClassesForEmail();
+
+    function loadGroups() {
+      const classname = document.getElementById('classSelect').value;
+      const groupCheckboxes = document.getElementById('groupCheckboxes');
+      const sendBtn = document.getElementById('sendBtn');
+      
+      if (!classname) {
+        groupCheckboxes.innerHTML = '<p style="color: #666; font-style: italic;">Please select a class first</p>';
+        sendBtn.disabled = true;
+        return;
+      }
+      
+      groupCheckboxes.innerHTML = '<p style="color: #666; font-style: italic;">Loading groups...</p>';
+      
+      google.script.run
+        .withSuccessHandler(function(groups) {
+          allGroups = groups;
+          renderGroupCheckboxes(groups);
+          sendBtn.disabled = false;
+        })
+        .withFailureHandler(function(error) {
+          groupCheckboxes.innerHTML = '<p style="color: #d93025;">Error loading groups: ' + error.message + '</p>';
+          sendBtn.disabled = true;
+        })
+        .getGroupsByClass(classname);
+    }
+
+    function renderGroupCheckboxes(groups) {
+      const container = document.getElementById('groupCheckboxes');
+      
+      if (groups.length === 0) {
+        container.innerHTML = '<p style="color: #666;">No groups found for this class</p>';
+        return;
+      }
+      
+      let html = '<div class="checkbox-item"><label><input type="checkbox" id="selectAll" onchange="toggleAllGroups()"> <strong>Select All</strong></label></div>';
+      
+      groups.forEach(group => {
+        html += `
+          <div class="checkbox-item">
+            <label>
+              <input type="checkbox" class="group-checkbox" value="${group}" onchange="updateSelectAll()">
+              ${group}
+            </label>
+          </div>
+        `;
+      });
+      
+      container.innerHTML = html;
+    }
+
+    function toggleAllGroups() {
+      const selectAll = document.getElementById('selectAll');
+      const checkboxes = document.querySelectorAll('.group-checkbox');
+      
+      checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+      });
+    }
+
+    function updateSelectAll() {
+      const checkboxes = document.querySelectorAll('.group-checkbox');
+      const selectAll = document.getElementById('selectAll');
+      
+      const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+      selectAll.checked = checkedCount === checkboxes.length;
+      selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+    }
+
+    function sendFolderEmails() {
+      const classname = document.getElementById('classSelect').value;
+      const selectedGroups = Array.from(document.querySelectorAll('.group-checkbox:checked'))
+                                 .map(cb => cb.value);
+      
+      if (!classname || selectedGroups.length === 0) {
+        showStatus('sendStatus', 'Please select a class and at least one group', 'error');
+        return;
+      }
+      
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.disabled = true;
+      sendBtn.textContent = '📧 Sending emails...';
+      
+      showStatus('sendStatus', `Sending folder links to ${selectedGroups.length} groups...`, 'loading');
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = '📧 Send Folder Links to Selected Groups';
+          
+          if (result.success) {
+            let message = `✅ Successfully processed ${result.results.length} groups\n\n`;
+            result.results.forEach(r => {
+              message += `${r.group}: ${r.status} - ${r.message}\n`;
+            });
+            showStatus('sendStatus', message, 'success');
+          } else {
+            showStatus('sendStatus', '❌ Error: ' + result.message, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = '📧 Send Folder Links to Selected Groups';
+          showStatus('sendStatus', '❌ Error: ' + error.message, 'error');
+        })
+        .sendFolderLinksToGroups(classname, selectedGroups);
+    }
+
+    function testReminders() {
+      showStatus('reminderStatus', 'Checking for assignments due tomorrow and sending reminder emails...', 'loading');
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            let message = `✅ Reminder check completed!\n\n`;
+            message += `📊 Summary:\n`;
+            message += `• Valid rules processed: ${result.validRules || 0}\n`;
+            message += `• Total group checks: ${result.totalChecks || 0}\n`;
+            message += `• Reminder emails sent: ${result.count || 0}/${result.totalReminders || 0}\n\n`;
+            message += `${result.summary || 'No reminders needed at this time.'}`;
+            showStatus('reminderStatus', message, 'success');
+          } else {
+            showStatus('reminderStatus', '❌ Error: ' + result.error, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          showStatus('reminderStatus', '❌ Error: ' + error.message, 'error');
+        })
+        .checkAndSendReminderEmails();
+    }
+
+
+
+    function toggleSection(sectionId) {
+      const section = document.getElementById(sectionId);
+      section.classList.toggle('active');
+    }
+
+    function showStatus(elementId, message, type) {
+      const element = document.getElementById(elementId);
+      element.innerHTML = `<div class="status ${type}">${message}</div>`;
+    }
+
+
+  </script>
+</body>
+</html>

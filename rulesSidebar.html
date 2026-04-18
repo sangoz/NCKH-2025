@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+
+        * { box-sizing: border-box; }
+        body {
+          font-family: "Plus Jakarta Sans", "Segoe UI", Arial, sans-serif;
+          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+          padding: 20px;
+          padding-bottom: 90px;
+          margin: 0;
+          font-size: 14px;
+          color: #333;
+        }
+        h3 {
+            color: #007bff;
+            margin-bottom: 15px;
+            font-size: 22px;
+            font-weight: 600;
+            text-align: center;
+        }
+        h4 {
+            margin: 0 0 15px;
+            font-size: 18px;
+            color: #28a745;
+            font-weight: 500;
+        }
+        h5 {
+            margin: 0 0 10px;
+            font-size: 16px;
+            color: #495057;
+            font-weight: 500;
+        }
+
+        select, input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: 0.3s ease;
+            background: #fff;
+            font-family: inherit;
+        }
+        select:focus, input:focus, textarea:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+            outline: none;
+        }
+
+        .rule-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #dee2e6;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: 0.3s ease;
+        }
+        .rule-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: 600;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .grid-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px 20px;
+            margin-top: 10px;
+        }
+
+        .number-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+        .number-wrapper input { width: 120px; }
+
+        .file-group {
+            border: 2px dashed #007bff;
+            padding: 16px;
+            border-radius: 12px;
+            background: #f8f9fa;
+            margin-top: 12px;
+            transition: 0.3s ease;
+        }
+        .file-group:hover {
+            background: #e9ecef;
+            border-color: #28a745;
+        }
+
+        .footer-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            padding: 16px 20px;
+            background: rgba(255,255,255,0.95);
+            border-top: 1px solid #dee2e6;
+            backdrop-filter: blur(8px);
+            display: flex;
+            justify-content: flex-end;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s ease;
+            font-family: inherit;
+        }
+        .btn:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            text-align: center;
+            color: #6c757d;
+            padding: 30px;
+            font-style: italic;
+            animation: pulse 1.2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .grid-wrapper { grid-template-columns: 1fr; }
+            .footer-bar { flex-direction: column; align-items: stretch; }
+            .btn { width: 100%; }
+        }
+
+        /* ===== Toast Notification ===== */
+        .toast-wrap {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.35s ease, transform 0.35s cubic-bezier(.22,1,.36,1);
+            pointer-events: none;
+            min-width: 240px;
+            max-width: 320px;
+        }
+        .toast-wrap.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+        .toast-card {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 16px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
+            backdrop-filter: blur(12px);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .toast-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00c896, #00a67e);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 0 0 4px rgba(0,200,150,0.18);
+            animation: popIn 0.4s cubic-bezier(.22,1,.36,1) both;
+        }
+        @keyframes popIn {
+            0%   { transform: scale(0); }
+            70%  { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+        .toast-icon svg {
+            width: 20px; height: 20px;
+            stroke: #fff;
+            stroke-width: 2.5;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .toast-body { flex: 1; }
+        .toast-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 3px;
+            letter-spacing: 0.01em;
+        }
+        .toast-msg {
+            font-size: 12px;
+            color: rgba(255,255,255,0.65);
+            margin: 0;
+            line-height: 1.5;
+        }
+        .toast-close {
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.4);
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0;
+            transition: color 0.2s;
+            flex-shrink: 0;
+        }
+        .toast-close:hover { color: #fff; }
+        .toast-progress {
+            height: 3px;
+            background: linear-gradient(90deg, #00c896, #00a67e);
+            border-radius: 0 0 16px 16px;
+            margin: 10px -20px -16px;
+            animation: shrink 3s linear forwards;
+            transform-origin: left;
+        }
+        @keyframes shrink {
+            from { transform: scaleX(1); }
+            to   { transform: scaleX(0); }
+        }
+    </style>
+</head>
+<body>
+    <h3>Thiết lập số file cho Rules</h3>
+    <label for="classSelector">Chọn lớp:</label>
+    <select id="classSelector" onchange="onClassChange()">
+        <option value="">-- Chọn lớp --</option>
+    </select>
+    <div class="container" id="content-container">
+        <div id="content">Vui lòng chọn lớp để hiển thị dữ liệu...</div>
+    </div>
+    <div class="footer-bar">
+        <button id="saveBtn" class="btn" onclick="submit()" disabled>Lưu thay đổi</button>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="gsToast" class="toast-wrap">
+        <div class="toast-card">
+            <div class="toast-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="toast-body">
+                <p class="toast-title" id="gsToastTitle">Lưu thành công!</p>
+                <p class="toast-msg" id="gsToastMsg"></p>
+            </div>
+            <button class="toast-close" onclick="hideSidebarModal()">×</button>
+        </div>
+        <div class="toast-progress" id="gsToastBar"></div>
+    </div>
+
+    <script>
+        let rules = [];
+        let fileExtensions = [];
+
+        function formatDate(date) {
+            const d = new Date(date);
+            const day   = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year  = d.getFullYear();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins  = String(d.getMinutes()).padStart(2, '0');
+            return `${day}/${month}/${year} ${hours}:${mins}`;
+        }
+
+        function createFileGroupHtml(index, fileData = {}, rowId = 'new') {
+            const type     = fileData.type || '';
+            const due      = fileData.due  || formatDate(new Date());
+            const req      = fileData.req  || '';
+            const uniqueId = `${rowId}-${index}`;
+            const optionsHtml = fileExtensions.map(ext =>
+                `<option value="${ext}" ${ext === type ? 'selected' : ''}>${ext}</option>`
+            ).join('');
+
+            return `
+                <div class="file-group" data-index="${index}">
+                    <h5>File ${index}</h5>
+                    <div class="grid-wrapper">
+                        <div class="input-group">
+                            <label for="file-type-${uniqueId}">📁 File type ${index}:</label>
+                            <select id="file-type-${uniqueId}" class="file-type">${optionsHtml}</select>
+                        </div>
+                        <div class="input-group">
+                            <label for="file-due-${uniqueId}">📅 Due day ${index} (dd/MM/yyyy hh:mm):</label>
+                            <input type="text" id="file-due-${uniqueId}" class="file-due" value="${due}" placeholder="dd/MM/yyyy hh:mm">
+                        </div>
+                        <div class="input-group">
+                            <label for="file-req-${uniqueId}">📝 Requirements ${index}:</label>
+                            <textarea id="file-req-${uniqueId}" class="file-req" rows="2">${req}</textarea>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateDetailView(numberInput) {
+            const card          = numberInput.closest('.rule-card');
+            const container     = card.querySelector('.details-container');
+            const newNumber     = parseInt(numberInput.value) || 0;
+            const currentGroups = container.querySelectorAll('.file-group');
+            const currentCount  = currentGroups.length;
+
+            if (newNumber > currentCount) {
+                for (let i = currentCount + 1; i <= newNumber; i++) {
+                    container.insertAdjacentHTML('beforeend', createFileGroupHtml(i));
+                }
+            } else if (newNumber < currentCount) {
+                for (let i = currentCount - 1; i >= newNumber; i--) {
+                    if (currentGroups[i]) currentGroups[i].remove();
+                }
+            }
+        }
+
+        function render(rows) {
+            rules = rows || [];
+            const content = document.getElementById('content');
+            const saveBtn = document.getElementById('saveBtn');
+
+            if (!rules.length) {
+                content.innerHTML = '<div>Không có dòng nào trong lớp đã chọn.</div>';
+                saveBtn.disabled = true;
+                return;
+            }
+
+            let html = '';
+            rows.forEach((r) => {
+                html += `
+                    <div class="rule-card" data-row="${r.row}">
+                        <h4>${r.classname} - ${r.folder}</h4>
+                        <div class="number-wrapper">
+                            <label for="num-file-${r.row}">Number of file:</label>
+                            <input type="number" id="num-file-${r.row}" min="0" value="${r.number || 0}" onchange="updateDetailView(this)" />
+                        </div>
+                        <div class="details-container">
+                `;
+                if (r.files && r.files.length) {
+                    r.files.forEach((file, index) => {
+                        html += createFileGroupHtml(index + 1, file, r.row);
+                    });
+                }
+                html += `</div></div>`;
+            });
+            content.innerHTML = html;
+            saveBtn.disabled = false;
+        }
+
+        function submit() {
+            const cards   = Array.from(document.querySelectorAll('.rule-card'));
+            const payload = cards.map(card => {
+                const row        = Number(card.dataset.row);
+                const number     = Number(card.querySelector('input[type="number"]').value || 0);
+                const fileGroups = card.querySelectorAll('.file-group');
+                const files      = Array.from(fileGroups).map(group => ({
+                    type: group.querySelector('.file-type').value,
+                    req:  group.querySelector('.file-req').value,
+                    due:  group.querySelector('.file-due').value
+                }));
+                return { row, number, files };
+            });
+
+            const btn = document.getElementById('saveBtn');
+            btn.disabled    = true;
+            btn.textContent = 'Đang lưu...';
+
+            google.script.run
+                .withSuccessHandler(function(resp) {
+                    showSidebarModal(resp && resp.message ? resp.message : 'Hoàn tất!');
+                    btn.disabled    = false;
+                    btn.textContent = 'Lưu thay đổi';
+                    onClassChange();
+                })
+                .withFailureHandler(function(err) {
+                    showSidebarModal('Lỗi: ' + (err && err.message ? err.message : String(err)), 'error');
+                    btn.disabled    = false;
+                    btn.textContent = 'Lưu thay đổi';
+                })
+                .saveRulesData(payload);
+        }
+
+        function onClassChange() {
+            const selectedClass = document.getElementById('classSelector').value;
+            const content       = document.getElementById('content');
+            const saveBtn       = document.getElementById('saveBtn');
+
+            if (!selectedClass) {
+                content.innerHTML = 'Vui lòng chọn lớp để hiển thị dữ liệu...';
+                saveBtn.disabled  = true;
+                return;
+            }
+
+            content.innerHTML = '<div class="loading">Đang tải dữ liệu...</div>';
+            saveBtn.disabled  = true;
+            google.script.run.withSuccessHandler(render).getRulesDataByClass(selectedClass);
+        }
+
+        // Tải extensions → rồi tải danh sách lớp
+        google.script.run
+            .withSuccessHandler(function(extensions) {
+                fileExtensions = extensions || [];
+                google.script.run
+                    .withSuccessHandler(function(classes) {
+                        const selector = document.getElementById('classSelector');
+                        classes.forEach(cls => {
+                            const option       = document.createElement('option');
+                            option.value       = cls;
+                            option.textContent = cls;
+                            selector.appendChild(option);
+                        });
+                    })
+                    .getClassList();
+            })
+            .getFileExtensions();
+
+        /* ===== Toast helpers ===== */
+        let _toastTimer;
+        function showSidebarModal(message, type) {
+            // type: 'success' (default) or 'error'
+            const toast = document.getElementById('gsToast');
+            const titleEl = document.getElementById('gsToastTitle');
+            const msgEl = document.getElementById('gsToastMsg');
+            const bar = document.getElementById('gsToastBar');
+
+            const t = (type || 'success');
+            if (t === 'error') {
+                titleEl.textContent = 'Lỗi';
+                // red-ish icon and progress
+                document.querySelector('.toast-icon').style.background = 'linear-gradient(135deg, #ff6b6b, #e04444)';
+                bar.style.background = 'linear-gradient(90deg, #ff6b6b, #e04444)';
+            } else {
+                titleEl.textContent = 'Hoàn tất';
+                document.querySelector('.toast-icon').style.background = 'linear-gradient(135deg, #00c896, #00a67e)';
+                bar.style.background = 'linear-gradient(90deg, #00c896, #00a67e)';
+            }
+
+            msgEl.textContent = message;
+            // Restart progress animation
+            bar.style.animation = 'none';
+            // force reflow
+            void bar.offsetHeight;
+            bar.style.animation = '';
+
+            toast.classList.add('show');
+            clearTimeout(_toastTimer);
+            _toastTimer = setTimeout(hideSidebarModal, 4000);
+        }
+        function hideSidebarModal() {
+            const toast = document.getElementById('gsToast');
+            toast.classList.remove('show');
+        }
+    </script>
+</body>
+</html>

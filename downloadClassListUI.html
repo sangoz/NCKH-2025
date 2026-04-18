@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f4f6f9;
+      color: #2c3e50;
+      margin: 0;
+      padding: 16px;
+      font-size: 13px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 16px;
+    }
+    h3 {
+      font-size: 16px;
+      margin: 0 0 4px 0;
+      text-align: center;
+      color: #34495e;
+    }
+    .subtitle {
+      font-size: 11px;
+      text-align: center;
+      color: #888;
+      margin-bottom: 14px;
+    }
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 4px;
+      color: #495057;
+    }
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fff;
+      transition: 0.2s;
+    }
+    select:focus {
+      border-color: #3498db;
+      outline: none;
+      box-shadow: 0 0 3px rgba(52,152,219,0.3);
+    }
+    .radio-group {
+      display: flex;
+      gap: 16px;
+      margin-top: 6px;
+    }
+    .radio-group label {
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      margin-top: 0;
+    }
+    .btn {
+      margin-top: 14px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: #3498db;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #2980b9; }
+    .btn-primary:disabled {
+      background: #95c4e8;
+      cursor: not-allowed;
+    }
+    .loading {
+      display: none;
+      text-align: center;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #3498db;
+    }
+    .msg {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+    }
+    .msg-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .msg-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .class-info {
+      margin-top: 10px;
+      padding: 8px;
+      background: #f0f7ff;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #555;
+      display: none;
+    }
+    .class-info span { font-weight: 600; color: #2c3e50; }
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+  <div class="card">
+    <h3>📥 Download Class List</h3>
+    <p class="subtitle">Tải danh sách lớp từ Form Response</p>
+
+    <label>Chọn lớp:</label>
+    <select id="classSelect" onchange="onClassChange()">
+      <option value="">-- Chọn lớp --</option>
+    </select>
+
+    <div id="classInfo" class="class-info">
+      <div>📝 Subject: <span id="infoSubject"></span></div>
+      <div>🏫 Class: <span id="infoClass"></span></div>
+    </div>
+
+    <label>Định dạng tải về:</label>
+    <div class="radio-group">
+      <label><input type="radio" name="format" value="csv" checked> CSV</label>
+      <label><input type="radio" name="format" value="excel"> Excel</label>
+    </div>
+
+    <button id="downloadBtn" class="btn btn-primary" onclick="downloadFile()" disabled>
+      <i class="fa fa-download"></i> Tải về
+    </button>
+
+    <div id="loading" class="loading">
+      <i class="fa fa-spinner fa-spin"></i> Đang xử lý...
+    </div>
+
+    <div id="msgSuccess" class="msg msg-success"></div>
+    <div id="msgError" class="msg msg-error"></div>
+  </div>
+
+  <script>
+    var classData = [];
+
+    // 1. Load danh sách lớp khi sidebar mở
+    google.script.run
+      .withSuccessHandler(function(data) {
+        console.log("Dữ liệu nhận được:", data); // Kiểm tra trong Console (F12)
+        
+        if (!data || data.length === 0) {
+          showMsg('error', 'Không tìm thấy dữ liệu lớp học.');
+          return;
+        }
+
+        classData = data;
+        var select = document.getElementById('classSelect');
+        
+        // Xóa các option cũ (trừ cái đầu tiên)
+        select.innerHTML = '<option value="">-- Chọn lớp --</option>';
+
+        data.forEach(function(item, idx) {
+          var opt = document.createElement('option');
+          opt.value = idx;
+          // Hiển thị: Môn học - Mã lớp (Nếu không có môn thì để trống)
+          var displayLabel = (item.subject || "N/A") + " - " + (item.classCode || "N/A");
+          opt.textContent = displayLabel;
+          select.appendChild(opt);
+        });
+      })
+      .withFailureHandler(function(err) {
+        console.error(err);
+        showMsg('error', 'Lỗi tải danh sách: ' + err.message);
+      })
+      .getClassListFromFormLogger();
+
+    // 2. Hàm xử lý khi chọn lớp
+    function onClassChange() {
+      var idx = document.getElementById('classSelect').value;
+      var btn = document.getElementById('downloadBtn');
+      var info = document.getElementById('classInfo');
+
+      if (idx === '' || !classData[idx]) {
+        btn.disabled = true;
+        info.style.display = 'none';
+        return;
+      }
+
+      btn.disabled = false;
+      var item = classData[idx];
+      document.getElementById('infoSubject').textContent = item.subject || "Trống";
+      document.getElementById('infoClass').textContent = item.classCode || "Trống";
+      info.style.display = 'block';
+    }
+
+    function downloadFile() {
+      var idx = document.getElementById('classSelect').value;
+      if (idx === '') return;
+
+      var format = document.querySelector('input[name="format"]:checked').value;
+      var item = classData[idx];
+
+      var btn = document.getElementById('downloadBtn');
+      var loading = document.getElementById('loading');
+      btn.disabled = true;
+      loading.style.display = 'block';
+      hideMsg();
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          loading.style.display = 'none';
+          btn.disabled = false;
+
+          if (result.error) {
+            showMsg('error', result.error);
+            return;
+          }
+
+          // Tạo download link từ base64 data
+          var blob;
+          if (format === 'csv') {
+            // CSV: decode base64 thành text với BOM cho Excel mở đúng UTF-8
+            var raw = atob(result.data);
+            var bytes = new Uint8Array(raw.length);
+            for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            blob = new Blob([bytes], { type: 'text/csv;charset=utf-8' });
+          } else {
+            var raw = atob(result.data);
+            var bytes = new Uint8Array(raw.length);
+            for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          }
+
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = result.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+
+          showMsg('success', '✅ Tải thành công: ' + result.filename);
+        })
+        .withFailureHandler(function(err) {
+          loading.style.display = 'none';
+          btn.disabled = false;
+          showMsg('error', 'Lỗi: ' + err.message);
+        })
+        .downloadClassListFile(item.responseSheetId, item.subject, item.classCode, format);
+    }
+
+    function showMsg(type, text) {
+      hideMsg();
+      var el = document.getElementById(type === 'success' ? 'msgSuccess' : 'msgError');
+      el.textContent = text;
+      el.style.display = 'block';
+    }
+
+    function hideMsg() {
+      document.getElementById('msgSuccess').style.display = 'none';
+      document.getElementById('msgError').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

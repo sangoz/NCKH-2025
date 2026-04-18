@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #eef2f7;
+      color: #333;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      background: linear-gradient(135deg, #1a73e8, #0d47a1);
+      color: white;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .header .breadcrumb {
+      font-size: 13px;
+      opacity: 0.85;
+    }
+
+    .header .breadcrumb a {
+      color: white;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    /* ===== TABS ===== */
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 2px solid #e0e0e0;
+      padding: 0 24px;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      color: #666;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      color: #1a73e8;
+    }
+
+    .tab.active {
+      color: #1a73e8;
+      border-bottom-color: #1a73e8;
+    }
+
+    /* ===== CONTENT ===== */
+    .content {
+      padding: 20px 24px;
+      max-height: calc(100vh - 110px);
+      overflow-y: auto;
+    }
+
+    /* ===== STAT CARDS ===== */
+    .stats-row {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+
+    .stat-card .value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .stat-card .label {
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    .stat-card.blue .value {
+      color: #1a73e8;
+    }
+
+    .stat-card.green .value {
+      color: #0f9d58;
+    }
+
+    .stat-card.red .value {
+      color: #db4437;
+    }
+
+    .stat-card.orange .value {
+      color: #f4b400;
+    }
+
+    .stat-card.gray .value {
+      color: #9e9e9e;
+    }
+
+    /* ===== CHART PANELS ===== */
+    .panel {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      margin-bottom: 20px;
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .chart-box {
+      position: relative;
+      height: 300px;
+    }
+
+    .chart-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    /* ===== CLASS CARDS (overview) ===== */
+    .class-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .class-card {
+      background: white;
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      cursor: pointer;
+      border-left: 4px solid #1a73e8;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .class-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .class-card .class-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a73e8;
+    }
+
+    .class-card .class-meta {
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    .class-card .mini-bar {
+      margin-top: 10px;
+      height: 8px;
+      border-radius: 4px;
+      background: #eee;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .class-card .mini-bar .fill-green {
+      background: #0f9d58;
+    }
+
+    .class-card .mini-bar .fill-yellow {
+      background: #f4b400;
+    }
+
+    .class-card .mini-bar .fill-red {
+      background: #db4437;
+    }
+
+    .class-card .mini-bar .fill-gray {
+      background: #bdbdbd;
+    }
+
+    /* ===== DETAIL TABLE ===== */
+    .detail-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .detail-table th {
+      background: #f8f9fa;
+      padding: 10px 8px;
+      text-align: left;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 2px solid #e0e0e0;
+      position: sticky;
+      top: 0;
+    }
+
+    .detail-table td {
+      padding: 9px 8px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .detail-table tr:hover {
+      background: #f8faff;
+    }
+
+    /* ===== STATUS BADGES ===== */
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-green {
+      background: #e6f4ea;
+      color: #137333;
+    }
+
+    .badge-yellow {
+      background: #fef7e0;
+      color: #b05a00;
+    }
+
+    .badge-red {
+      background: #fce8e6;
+      color: #c5221f;
+    }
+
+    .badge-orange {
+      background: #fff3e0;
+      color: #e65100;
+    }
+
+    .badge-gray {
+      background: #f1f3f4;
+      color: #616161;
+    }
+
+    /* ===== CONTROLS (detail view) ===== */
+    .controls-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .controls-bar select {
+      padding: 7px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      background: white;
+    }
+
+    .controls-bar label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>📊 Dashboard Thống Kê</h1>
+    <div class="breadcrumb" id="breadcrumb"></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" data-tab="overview" onclick="switchTab('overview')">Tổng Quan</div>
+    <div class="tab" data-tab="detail" onclick="switchTab('detail')">Chi Tiết Lớp</div>
+  </div>
+
+  <!-- ===================== TAB 1: TỔNG QUAN ===================== -->
+  <div class="content" id="page-overview">
+
+    <!-- Global stats -->
+    <div class="stats-row" id="globalStats"></div>
+
+    <!-- Charts row -->
+    <div class="chart-row">
+      <div class="panel">
+        <div class="panel-title">Tỉ lệ hoàn thành theo lớp</div>
+        <div class="chart-box"><canvas id="chartClassBar"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Phân bố trạng thái tổng thể</div>
+        <div class="chart-box"><canvas id="chartGlobalPie"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Class cards -->
+    <div class="panel">
+      <div class="panel-title">Danh sách lớp — click để xem chi tiết</div>
+      <div class="class-grid" id="classGrid"></div>
+    </div>
+  </div>
+
+  <!-- ===================== TAB 2: CHI TIẾT LỚP ===================== -->
+  <div class="content hidden" id="page-detail">
+
+    <div class="controls-bar">
+      <label>Lớp:</label>
+      <select id="selClass" onchange="renderDetail()"></select>
+      <label style="margin-left:12px;">Nhóm:</label>
+      <select id="selGroup" onchange="renderDetail()">
+        <option value="">Tất cả nhóm</option>
+      </select>
+    </div>
+
+    <div class="stats-row" id="detailStats"></div>
+
+    <div class="chart-row">
+      <div class="panel">
+        <div class="panel-title" id="detailBarTitle">So sánh giữa các nhóm</div>
+        <div class="chart-box"><canvas id="chartDetailBar"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title" id="detailPieTitle">Phân bố trạng thái</div>
+        <div class="chart-box"><canvas id="chartDetailPie"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Assignment table -->
+    <div class="panel">
+      <div class="panel-title">Chi tiết bài nộp</div>
+      <div style="max-height:300px;overflow-y:auto;">
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th>Nhóm</th>
+              <th>Assignment</th>
+              <th>Hạn nộp</th>
+              <th>Trạng thái</th>
+              <th>Extension</th>
+              <th>Nộp lần cuối</th>
+              <th>Trễ hạn</th>
+            </tr>
+          </thead>
+          <tbody id="detailTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== DATA ===== */
+    var ALL_DATA = <?!= injectedData ?>;
+    var charts = {};
+
+    /* ===== HELPERS ===== */
+    function categorize(status) {
+      var s = (status || '').trim();
+      if (s.indexOf('Complete') === 0 && s.indexOf('Incomplete') !== 0) return 'completed';
+      if (s.indexOf('Incomplete') === 0) return 'incomplete';
+      if (s === 'Not submitted') return 'notSubmitted';
+      if (s === 'Folder not found') return 'folderNotFound';
+      if (s === 'No rule') return 'noRule';
+      if (s === '') return 'notSubmitted';
+      return 'other';
+    }
+
+    var STATUS_META = {
+      completed: { label: 'Hoàn thành', color: '#0f9d58', bg: 'rgba(15,157,88,0.75)', badge: 'badge-green' },
+      incomplete: { label: 'Nộp thiếu', color: '#f4b400', bg: 'rgba(244,180,0,0.75)', badge: 'badge-yellow' },
+      notSubmitted: { label: 'Chưa nộp', color: '#db4437', bg: 'rgba(219,68,55,0.75)', badge: 'badge-red' },
+      folderNotFound: { label: 'Folder not found', color: '#e65100', bg: 'rgba(230,81,0,0.65)', badge: 'badge-orange' },
+      noRule: { label: 'Chưa có rule', color: '#9e9e9e', bg: 'rgba(158,158,158,0.6)', badge: 'badge-gray' }
+    };
+    var CAT_ORDER = ['completed', 'incomplete', 'notSubmitted', 'folderNotFound', 'noRule'];
+
+    function countByStatus(rows) {
+      var c = { completed: 0, incomplete: 0, notSubmitted: 0, folderNotFound: 0, noRule: 0 };
+      for (var i = 0; i < rows.length; i++) {
+        var cat = categorize(rows[i].submissionStatus);
+        if (c.hasOwnProperty(cat)) c[cat]++; else c.notSubmitted++;
+      }
+      return c;
+    }
+
+    function uniqueVals(arr, key) {
+      var s = {}, r = [];
+      for (var i = 0; i < arr.length; i++) {
+        var v = arr[i][key];
+        if (v && !s[v]) { s[v] = true; r.push(v); }
+      }
+      return r.sort();
+    }
+
+    function filterData(cls, grp) {
+      var r = [];
+      for (var i = 0; i < ALL_DATA.length; i++) {
+        if (cls && ALL_DATA[i].classname !== cls) continue;
+        if (grp && ALL_DATA[i].groupname !== grp) continue;
+        r.push(ALL_DATA[i]);
+      }
+      return r;
+    }
+
+    function pct(n, total) { return total > 0 ? ((n / total) * 100).toFixed(1) : '0.0'; }
+
+    function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+    function statusBadge(status) {
+      var cat = categorize(status);
+      var m = STATUS_META[cat] || STATUS_META.notSubmitted;
+      return '<span class="badge ' + m.badge + '">' + (status || 'Chưa nộp') + '</span>';
+    }
+
+    /* ===== TAB SWITCHING ===== */
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-tab') === tab);
+      });
+      document.getElementById('page-overview').classList.toggle('hidden', tab !== 'overview');
+      document.getElementById('page-detail').classList.toggle('hidden', tab !== 'detail');
+      if (tab === 'overview') {
+        document.getElementById('breadcrumb').innerHTML = '';
+      }
+    }
+
+    function goToClass(cls) {
+      switchTab('detail');
+      document.getElementById('selClass').value = cls;
+      renderDetail();
+    }
+
+    /* ===== OVERVIEW RENDER ===== */
+    function renderOverview() {
+      var classes = uniqueVals(ALL_DATA, 'classname');
+      var total = ALL_DATA.length;
+      var counts = countByStatus(ALL_DATA);
+      var overdueCount = 0;
+      for (var i = 0; i < ALL_DATA.length; i++) {
+        if (ALL_DATA[i].overdue === '☑') overdueCount++;
+      }
+
+      /* Global stats */
+      document.getElementById('globalStats').innerHTML =
+        '<div class="stat-card blue"><div class="value">' + classes.length + '</div><div class="label">Số lớp</div></div>' +
+        '<div class="stat-card blue"><div class="value">' + total + '</div><div class="label">Tổng bài tập</div></div>' +
+        '<div class="stat-card green"><div class="value">' + counts.completed + '</div><div class="label">Hoàn thành</div></div>' +
+        '<div class="stat-card yellow"><div class="value">' + counts.incomplete + '</div><div class="label">Nộp thiếu</div></div>' +
+        '<div class="stat-card red"><div class="value">' + counts.notSubmitted + '</div><div class="label">Chưa nộp</div></div>' +
+        '<div class="stat-card orange"><div class="value">' + overdueCount + '</div><div class="label">Trễ hạn</div></div>';
+
+      /* Bar chart: completion rate per class */
+      var barLabels = [], barCompleted = [], barIncomplete = [];
+      for (var c = 0; c < classes.length; c++) {
+        var rows = filterData(classes[c], '');
+        var cc = countByStatus(rows);
+        barLabels.push(classes[c]);
+        barCompleted.push(cc.completed);
+        barIncomplete.push(rows.length - cc.completed);
+      }
+      destroyChart('chartClassBar');
+      charts.chartClassBar = new Chart(document.getElementById('chartClassBar'), {
+        type: 'bar',
+        data: {
+          labels: barLabels,
+          datasets: [
+            { label: 'Hoàn thành', data: barCompleted, backgroundColor: 'rgba(15,157,88,0.8)' },
+            { label: 'Chưa hoàn thành', data: barIncomplete, backgroundColor: 'rgba(219,68,55,0.6)' }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+      });
+
+      /* Pie chart: global status */
+      var pieL = [], pieD = [], pieC = [];
+      for (var k = 0; k < CAT_ORDER.length; k++) {
+        var key = CAT_ORDER[k];
+        if (counts[key] > 0) {
+          pieL.push(STATUS_META[key].label);
+          pieD.push(counts[key]);
+          pieC.push(STATUS_META[key].bg);
+        }
+      }
+      destroyChart('chartGlobalPie');
+      charts.chartGlobalPie = new Chart(document.getElementById('chartGlobalPie'), {
+        type: 'doughnut',
+        data: { labels: pieL, datasets: [{ data: pieD, backgroundColor: pieC }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+
+      /* Class cards */
+      var html = '';
+      for (var c = 0; c < classes.length; c++) {
+        var cls = classes[c];
+        var rows = filterData(cls, '');
+        var cc = countByStatus(rows);
+        var t = rows.length;
+        var groups = uniqueVals(rows, 'groupname');
+        var pGreen = t > 0 ? (cc.completed / t * 100) : 0;
+        var pYellow = t > 0 ? (cc.incomplete / t * 100) : 0;
+        var pRed = t > 0 ? (cc.notSubmitted / t * 100) : 0;
+        var pGray = 100 - pGreen - pYellow - pRed;
+        if (pGray < 0) pGray = 0;
+        html += '<div class="class-card" onclick="goToClass(\'' + cls + '\')">' +
+          '<div class="class-name">' + cls + '</div>' +
+          '<div class="class-meta">' + groups.length + ' nhóm · ' + t + ' bài · ' +
+          pct(cc.completed, t) + '% hoàn thành</div>' +
+          '<div class="mini-bar">' +
+          '<div class="fill-green" style="width:' + pGreen + '%"></div>' +
+          '<div class="fill-yellow" style="width:' + pYellow + '%"></div>' +
+          '<div class="fill-red" style="width:' + pRed + '%"></div>' +
+          '<div class="fill-gray" style="width:' + pGray + '%"></div>' +
+          '</div></div>';
+      }
+      document.getElementById('classGrid').innerHTML = html;
+
+      /* Populate class selector for detail tab */
+      var sel = document.getElementById('selClass');
+      sel.innerHTML = '';
+      for (var c = 0; c < classes.length; c++) {
+        sel.innerHTML += '<option value="' + classes[c] + '">' + classes[c] + '</option>';
+      }
+    }
+
+    /* ===== DETAIL RENDER ===== */
+    function renderDetail() {
+      var cls = document.getElementById('selClass').value;
+      if (!cls) return;
+      var grp = document.getElementById('selGroup').value;
+
+      document.getElementById('breadcrumb').innerHTML =
+        '<a onclick="switchTab(\'overview\')">Tổng Quan</a> › ' + cls + (grp ? ' › ' + grp : '');
+
+      /* Update group dropdown */
+      var classRows = filterData(cls, '');
+      var groups = uniqueVals(classRows, 'groupname');
+      var selG = document.getElementById('selGroup');
+      var prevGrp = selG.value;
+      selG.innerHTML = '<option value="">Tất cả nhóm</option>';
+      for (var i = 0; i < groups.length; i++) {
+        selG.innerHTML += '<option value="' + groups[i] + '"' +
+          (groups[i] === prevGrp ? ' selected' : '') + '>' + groups[i] + '</option>';
+      }
+      grp = selG.value;
+
+      var rows = filterData(cls, grp);
+      var counts = countByStatus(rows);
+      var overdueCount = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].overdue === '☑') overdueCount++;
+      }
+
+      /* Stats */
+      document.getElementById('detailStats').innerHTML =
+        '<div class="stat-card blue"><div class="value">' + rows.length + '</div><div class="label">Tổng bài</div></div>' +
+        '<div class="stat-card green"><div class="value">' + pct(counts.completed, rows.length) + '%</div><div class="label">Hoàn thành</div></div>' +
+        '<div class="stat-card red"><div class="value">' + (rows.length - counts.completed) + '</div><div class="label">Chưa xong</div></div>' +
+        '<div class="stat-card orange"><div class="value">' + overdueCount + '</div><div class="label">Trễ hạn</div></div>';
+
+      /* Bar chart: group comparison (stacked by status) */
+      var displayGroups = grp ? [grp] : groups;
+      var datasets = [];
+      for (var k = 0; k < CAT_ORDER.length; k++) {
+        var key = CAT_ORDER[k];
+        var d = [];
+        var hasData = false;
+        for (var g = 0; g < displayGroups.length; g++) {
+          var gRows = filterData(cls, displayGroups[g]);
+          var gc = countByStatus(gRows);
+          d.push(gc[key]);
+          if (gc[key] > 0) hasData = true;
+        }
+        if (hasData) {
+          datasets.push({
+            label: STATUS_META[key].label,
+            data: d,
+            backgroundColor: STATUS_META[key].bg
+          });
+        }
+      }
+      document.getElementById('detailBarTitle').textContent =
+        grp ? 'Trạng thái bài nộp — ' + grp : 'So sánh giữa các nhóm';
+
+      destroyChart('chartDetailBar');
+      charts.chartDetailBar = new Chart(document.getElementById('chartDetailBar'), {
+        type: 'bar',
+        data: { labels: displayGroups, datasets: datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+      });
+
+      /* Pie chart */
+      var pieL = [], pieD = [], pieC = [];
+      for (var k = 0; k < CAT_ORDER.length; k++) {
+        var key = CAT_ORDER[k];
+        if (counts[key] > 0) {
+          pieL.push(STATUS_META[key].label);
+          pieD.push(counts[key]);
+          pieC.push(STATUS_META[key].bg);
+        }
+      }
+      document.getElementById('detailPieTitle').textContent =
+        'Phân bố trạng thái' + (grp ? ' — ' + grp : ' — ' + cls);
+      destroyChart('chartDetailPie');
+      charts.chartDetailPie = new Chart(document.getElementById('chartDetailPie'), {
+        type: 'doughnut',
+        data: { labels: pieL, datasets: [{ data: pieD, backgroundColor: pieC }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+
+      /* Table */
+      var tbody = '';
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        tbody += '<tr>' +
+          '<td>' + r.groupname + '</td>' +
+          '<td>' + r.assignment + '</td>' +
+          '<td>' + (r.dueDay || '—') + '</td>' +
+          '<td>' + statusBadge(r.submissionStatus) + '</td>' +
+          '<td>' + (r.extensionRequirement || '—') + '</td>' +
+          '<td>' + (r.lastSubmission || '—') + '</td>' +
+          '<td>' + (r.overdue || '—') + '</td>' +
+          '</tr>';
+      }
+      document.getElementById('detailTableBody').innerHTML = tbody;
+    }
+
+    /* ===== INIT ===== */
+    window.onload = function () {
+      if (typeof Chart === 'undefined') {
+        document.body.innerHTML = '<div style="padding:40px;color:#c62828;">Không thể tải Chart.js. Kiểm tra kết nối mạng.</div>';
+        return;
+      }
+      if (!ALL_DATA || ALL_DATA.length === 0) {
+        document.body.innerHTML = '<div style="padding:40px;color:#666;">Không có dữ liệu trong sheet Dashboard.</div>';
+        return;
+      }
+      renderOverview();
+    };
+  </script>
+</body>
+
+</html>

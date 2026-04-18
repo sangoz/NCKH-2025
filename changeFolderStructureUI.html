@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Folder Pattern Creator</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 13px;
+    margin: 0;
+    padding: 12px;
+    background: #f5f5f7;
+    color: #202124;
+    overflow-y: auto;
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  /* --- Top bar --- */
+  .top-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .top-buttons select {
+    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #dadce0;
+    background: #fff;
+    width: 100%;          
+    min-width: 200px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .top-buttons select:focus {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 2px rgba(26,115,232,0.2);
+  }
+
+  .top-buttons .button-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .top-buttons button {
+    background: #f8f9fa;
+    border: 1px solid #dadce0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  }
+
+  .top-buttons button:hover {
+    background: #e8f0fe;
+    border-color: #1a73e8;
+  }
+
+  .top-buttons button:active {
+    transform: scale(0.97);
+    background: #d2e3fc;
+  }
+
+
+  /* Loading effect for View button */
+.top-buttons button.view-btn.loading {
+    position: relative;
+    pointer-events: none;
+    color: transparent; /* ẩn chữ trong lúc loading */
+  }
+
+  .top-buttons button.view-btn.loading::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 14px; height: 14px;
+    margin: -7px 0 0 -7px;
+    border: 2px solid #1a73e8;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* --- Folder items --- */
+  .folder {
+    position: relative;
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 6px;
+    background: #ffffff;
+    transition: background 0.2s;
+  }
+
+  .folder:hover {
+    background: #e8f0fe;
+  }
+
+  .folder-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .folder-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+
+  .folder-actions button {
+    border: none;
+    background: transparent;
+    color: #5f6368;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 12px;
+    transition: color 0.2s;
+  }
+
+  .folder-actions button:hover {
+    color: #1a73e8;
+  }
+
+  input {
+    font-size: 13px;
+    padding: 2px 4px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    outline: none;
+    background: transparent;
+    transition: border-color 0.2s;
+  }
+
+  input:focus {
+    border-color: #1a73e8;
+  }
+
+  .subfolders {
+    margin-left: 20px;
+    position: relative;
+  }
+
+  .subfolders::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10px;
+    width: 1px;
+    height: 100%;
+    background: #cfd8dc;
+  }
+
+  .subfolders .folder::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: -10px;
+    width: 10px;
+    height: 1px;
+    background: #cfd8dc;
+  }
+
+  /* --- Pattern preview box --- */
+  #patternResult {
+    white-space: pre;
+    background: #ffffff;
+    color: #202124;
+    padding: 10px;
+    margin-top: 12px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: inset 0 0 4px rgba(60,64,67,0.1);
+  }
+
+  /* --- Result menu --- */
+  #resultMenu {
+    margin-top: 12px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  #resultMenu button {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+
+  #resultMenu button:hover {
+    background: #1558b0;
+    transform: translateY(-1px);
+  }
+
+  #resultMenu button:active {
+    transform: translateY(0);
+    background: #0d3f7a;
+  }
+
+  #statusMessage {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  #statusMessage.success {
+    color: #188038; /* xanh lá */
+  }
+  #statusMessage.error {
+    color: #d93025; /* đỏ */
+  }
+  #statusMessage.warning {
+    color: #e37400; /* cam */
+  }
+
+  /* --- Loading overlay --- */
+  #loadingOverlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    font-size: 15px;
+    color: #1a73e8;
+    font-weight: 500;
+  }
+
+  .spinner {
+    border: 4px solid #e0e0e0;
+    border-top: 4px solid #1a73e8;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+  <div class="top-buttons">
+    <select id="classSelect">
+      <option value="">Loading...</option>
+    </select>
+    <div class="button-row">
+      <button onclick="addFolder(null)">+ Root</button>
+      <button onclick="showPattern()">Preview</button>
+      <button class="view-btn" onclick="viewFolders()">View</button>
+    </div>
+  </div>
+
+  <div id="rootsContainer"></div>
+  <div id="patternResult"></div>
+
+  <div id="resultMenuChange">
+    <button onclick="generateFolderChange()">Update</button>
+    <div id="statusMessage"></div>
+  </div>
+
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    Creating folders, please wait...
+  </div>
+
+  
+  <script>
+    const rootsContainer = document.getElementById('rootsContainer');
+    const classSelect = document.getElementById('classSelect');
+
+    function renderClassDropdown() {
+      google.script.run.withSuccessHandler(function(classList) {
+        classSelect.innerHTML = '<option value="">Select Class</option>';
+        if (!classList || classList.length === 0) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'Không có class nào';
+          classSelect.appendChild(option);
+          return;
+        }
+        classList.forEach(cls => {
+          const option = document.createElement('option');
+          option.value = cls;
+          option.textContent = cls;
+          classSelect.appendChild(option);
+        });
+      }).getAllClasses('Create Folder'); 
+    }
+
+    renderClassDropdown();
+
+    function renderFolders(container, folders) {
+      container.innerHTML = ""; // clear container
+      folders.forEach(f => {
+        const folderDiv = document.createElement('div');
+        folderDiv.className = 'folder';
+
+        folderDiv.innerHTML = `
+          <div class="folder-left">
+            <span>📁</span>
+            <input type="text" value="${f.name || ''}" placeholder="Folder Name">
+          </div>
+          <div class="folder-actions">
+            <button onclick="addChild(this)">+ Sub</button>
+            <button onclick="addSibling(this)">+ Sib</button>
+            <button onclick="deleteFolder(this)">❌</button>
+          </div>
+          <div class="subfolders"></div>
+        `;
+
+        container.appendChild(folderDiv);
+
+        if (f.children && f.children.length > 0) {
+          renderFolders(folderDiv.querySelector('.subfolders'), f.children);
+        }
+      });
+    }
+
+
+    function viewFolders() {
+      const className = classSelect.value;
+      const viewBtn = document.querySelector(".view-btn");
+      if (!className) {
+        rootsContainer.innerHTML = "";
+        return;
+      }
+
+      viewBtn.classList.add("loading");
+
+      google.script.run.withSuccessHandler(function(folders) {
+        renderFolders(rootsContainer, folders || []);
+        viewBtn.classList.remove("loading");
+      }).withFailureHandler(function() {
+        viewBtn.classList.remove("loading");
+      }).sheetToObjectByClassname(className);
+    }
+
+    function addFolder(container) {
+      const folderDiv = document.createElement('div');
+      folderDiv.className = 'folder';
+
+      folderDiv.innerHTML = `
+        <div class="folder-left">
+          <span>📁</span>
+          <input type="text" placeholder="Folder Name">
+        </div>
+        <div class="folder-actions">
+          <button onclick="addChild(this)">+ Sub</button>
+          <button onclick="addSibling(this)">+ Sib</button>
+          <button onclick="deleteFolder(this)">❌</button>
+        </div>
+        <div class="subfolders"></div>
+      `;
+
+      if (!container) {
+        rootsContainer.appendChild(folderDiv);
+      } else {
+        container.appendChild(folderDiv);
+      }
+    }
+
+    function addChild(btn) {
+      const currentFolder = btn.closest('.folder');
+      const subContainer = currentFolder.querySelector('.subfolders');
+      addFolder(subContainer);
+    }
+
+    function addSibling(btn) {
+      const currentFolder = btn.closest('.folder');
+      const parentContainer = currentFolder.parentElement;
+      addFolder(parentContainer);
+    }
+
+    function deleteFolder(btn) {
+      const folder = btn.closest('.folder');
+      folder.remove();
+    }
+
+    function collectFolders(container) {
+      const folders = [];
+      const divs = container.querySelectorAll(':scope > .folder');
+      divs.forEach(div => {
+        const name = div.querySelector('input').value.trim();
+        const children = collectFolders(div.querySelector('.subfolders'));
+        if(name || children.length > 0) {
+          folders.push({name, children});
+        }
+      });
+      return folders;
+    }
+
+    function formatPattern(folders, prefix = '') {
+      let text = '';
+      let obj = [];
+
+      folders.forEach((f, index) => {
+          const isLast = index === folders.length - 1;
+          const branch = prefix + (isLast ? '└─ ' : '├─ ');
+
+          if (f.name) {
+          text += branch + f.name + '\n';
+          }
+
+          let childrenResult = formatPattern(f.children, prefix + (isLast ? '   ' : '│  '));
+
+          obj.push({
+          name: f.name,
+          children: childrenResult.obj
+          });
+
+          text += childrenResult.text;
+      });
+
+      return { text, obj };
+    }
+
+
+    function showPattern() {
+       const selectedClass = classSelect.value;
+       if(!selectedClass) return;
+
+       const folders = collectFolders(rootsContainer);
+       const result = formatPattern(folders);
+
+       let patternText = `Class: ${selectedClass}\n`;
+       patternText += result.text || 'No folders defined.';
+       document.getElementById('patternResult').innerText = patternText;
+    }
+
+
+    function generateFolderChange() {
+      const classname = document.getElementById('classSelect').value;
+      if (!classname) {
+        alert('⚠️ Vui lòng chọn class!');
+        return;
+      }
+
+      const folders = collectFolders(rootsContainer);
+      if (!folders || folders.length === 0) {
+        alert('⚠️ Vui lòng thêm ít nhất một folder!');
+        return;
+      }
+
+      const result = formatPattern(folders);
+
+      const overlay = document.getElementById('loadingOverlay');
+      const statusEl = document.getElementById('statusMessage');
+      
+      // Bước 1: Validate - kiểm tra cấu trúc
+      overlay.style.display = 'flex';
+      overlay.innerHTML = '<div class="spinner"></div>Đang validate cấu trúc...';
+      statusEl.textContent = '';
+      statusEl.className = '';
+
+      // Validate xong thì tiếp tục
+      if (!result.obj || result.obj.length === 0) {
+        overlay.style.display = 'none';
+        statusEl.textContent = "❌ Cấu trúc folder không hợp lệ";
+        statusEl.className = "error";
+        return;
+      }
+
+      // Bước 2: Cập nhật sheet "Create Folder"
+      overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật sheet...';
+      
+      google.script.run
+        .withFailureHandler(function (err) {
+          overlay.style.display = 'none';
+          statusEl.textContent = "❌ Lỗi cập nhật sheet: " + err.message;
+          statusEl.className = "error";
+        })
+        .withSuccessHandler(function () {
+          // Bước 3: Cập nhật folder trên Drive
+          overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật folder trên Drive...';
+          
+          google.script.run
+            .withFailureHandler(function (err) {
+              overlay.style.display = 'none';
+              statusEl.textContent = "❌ Lỗi cập nhật Drive: " + err.message;
+              statusEl.className = "error";
+            })
+            .withSuccessHandler(function () {
+              // Bước 4: Cập nhật Rules
+              overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật Rules...';
+              
+              google.script.run
+                .withFailureHandler(function (err) {
+                  overlay.style.display = 'none';
+                  statusEl.textContent = "❌ Lỗi cập nhật Rules: " + err.message;
+                  statusEl.className = "error";
+                })
+                .withSuccessHandler(function () {
+                  // Bước 5: Cập nhật Permissions
+                  overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật Permissions...';
+                  
+                  google.script.run
+                    .withFailureHandler(function (err) {
+                      overlay.style.display = 'none';
+                      statusEl.textContent = "❌ Lỗi cập nhật Permissions: " + err.message;
+                      statusEl.className = "error";
+                    })
+                    .withSuccessHandler(function () {
+                      // Bước 5: Cập nhật Dashboard
+                      overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật Dashboard...';
+                      
+                      google.script.run
+                        .withFailureHandler(function (err) {
+                          overlay.style.display = 'none';
+                          statusEl.textContent = "❌ Lỗi cập nhật Dashboard: " + err.message;
+                          statusEl.className = "error";
+                        })
+                        .withSuccessHandler(function () {
+                          // Bước 6: Tự động cập nhật Dashboard
+                          overlay.innerHTML = '<div class="spinner"></div>Đang cập nhật thông tin Dashboard...';
+                          
+                          google.script.run
+                            .withFailureHandler(function (err) {
+                              overlay.style.display = 'none';
+                              statusEl.textContent = "⚠️ Cập nhật thành công nhưng lỗi update dashboard: " + err.message;
+                              statusEl.className = "warning";
+                              console.error("❌ UpdateDashBoard failed:", err);
+                            })
+                            .withSuccessHandler(function () {
+                              overlay.style.display = 'none';
+                              statusEl.textContent = "✅ Cập nhật và refresh Dashboard thành công!";
+                              statusEl.className = "success";
+                            })
+                            .UpdateDashBoard();
+                        })
+                        .writeDashboardSheet(classname);
+                    })
+                    .writePermissionsSheet(classname);
+                })
+                .updateRulesForClass(classname, result.obj);
+            })
+            .updateClassFolderStructure(classname, result.obj);
+        })
+        .updateClassTreeSheet(classname, result.obj);
+    }
+
+  </script>
+</body>
+</html>
