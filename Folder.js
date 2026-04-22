@@ -2018,7 +2018,7 @@ function normalizePermissionValue(permission) {
  */
 function extractFolderIdFromFormula(formula) {
   if (!formula || typeof formula !== 'string') return null;
-  
+
   // Pattern: /folders/[FOLDER_ID]
   const match = formula.match(/\/folders\/([a-zA-Z0-9_-]+)/);
   return match ? match[1] : null;

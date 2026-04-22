@@ -1,7 +1,7 @@
-function mainFormBuilder () {
+function mainFormBuilder() {
   var html = HtmlService.createHtmlOutputFromFile('formBuilderUI') // ref: formBuilderUI.html
-    .setTitle (' ')
-    .setWidth (300)
+    .setTitle(' ')
+    .setWidth(300)
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
@@ -82,33 +82,40 @@ function buildForm(subject, classCode, deadline, notes) {
   const publishUrl = form.getPublishedUrl();
   const formId = form.getId();
 
-  // --- Get parent folder of the app spreadsheet ---
-  const appFile = DriveApp.getFileById(ss.getId());
-  const parents = appFile.getParents();
-  let parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-
-  // --- Find or create "temp" folder ---
-  let tempFolder;
-  const folders = parentFolder.getFoldersByName("temp");
-  tempFolder = folders.hasNext() ? folders.next() : parentFolder.createFolder("temp");
-
-  const formtempFolder = getOrCreateFolder (tempFolder, '_form_temp_')
-
-  // --- Create a subfolder for this form ---
-  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
-  const formFolder = formtempFolder.createFolder(formId + "_" + timestamp);
-
-  // --- Move form into the subfolder ---
-  const formFile = DriveApp.getFileById(formId);
-  formFile.moveTo(formFolder);
-
   // --- Create response sheet (R) ---
   const responseSs = SpreadsheetApp.create("Responses - " + formTitle);
   form.setDestination(FormApp.DestinationType.SPREADSHEET, responseSs.getId());
 
-  // Move response sheet into the same subfolder
-  const responseFile = DriveApp.getFileById(responseSs.getId());
-  responseFile.moveTo(formFolder);
+  // --- Optional Drive organization ---
+  // If DriveApp is not authorized for current user, keep form creation successful.
+  let folderUrl = "";
+  try {
+    // --- Get parent folder of the app spreadsheet ---
+    const appFile = DriveApp.getFileById(ss.getId());
+    const parents = appFile.getParents();
+    const parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+
+    // --- Find or create "temp" folder ---
+    const folders = parentFolder.getFoldersByName("temp");
+    const tempFolder = folders.hasNext() ? folders.next() : parentFolder.createFolder("temp");
+    const formtempFolder = getOrCreateFolder(tempFolder, '_form_temp_');
+
+    // --- Create a subfolder for this form ---
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
+    const formFolder = formtempFolder.createFolder(formId + "_" + timestamp);
+
+    // --- Move form into the subfolder ---
+    const formFile = DriveApp.getFileById(formId);
+    formFile.moveTo(formFolder);
+
+    // Move response sheet into the same subfolder
+    const responseFile = DriveApp.getFileById(responseSs.getId());
+    responseFile.moveTo(formFolder);
+
+    folderUrl = formFolder.getUrl();
+  } catch (e) {
+    Logger.log("Drive organization skipped for buildForm: " + e.message);
+  }
 
   // --- Write log ---
   let logSheet = ss.getSheetByName("Form Logger");
@@ -117,7 +124,7 @@ function buildForm(subject, classCode, deadline, notes) {
     logSheet.appendRow(["Timestamp", "Subject", "Class", "Publish URL", "Edit URL", "Folder URL", "Response Sheet"]);
     logSheet.getRange(1, 1, 1, 7).setFontWeight("bold").setBackground("#d9ead3");
   }
-  logSheet.appendRow([new Date(), subject, normalizedClassCode, publishUrl, editUrl, formFolder.getUrl(), responseSs.getUrl()]);
+  logSheet.appendRow([new Date(), subject, normalizedClassCode, publishUrl, editUrl, folderUrl, responseSs.getUrl()]);
 
   return publishUrl; // return form link
 }
@@ -127,7 +134,7 @@ function buildForm(subject, classCode, deadline, notes) {
 ///////////////
 function manualSync() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
+
   // --- Ensure classList sheet exists ---
   let targetSheet = ss.getSheetByName("Class List");
   if (!targetSheet) {
@@ -136,44 +143,72 @@ function manualSync() {
     targetSheet.clear(); // optional: clear previous content
   }
 
-  // --- Find temp folder ---
-  const appFile = DriveApp.getFileById(ss.getId());
-  const parentFolder = appFile.getParents().hasNext() ? appFile.getParents().next() : DriveApp.getRootFolder();
-  const tempFolder = getOrCreateFolder(parentFolder, "temp");
-  const formFolder = getOrCreateFolder(tempFolder, "_form_temp_");
+  // --- Read response sheets from Form Logger (no DriveApp dependency) ---
+  const logSheet = ss.getSheetByName("Form Logger");
+  if (!logSheet || logSheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert("Không tìm thấy dữ liệu trong Form Logger để sync.");
+    return;
+  }
 
-  const subfolders = formFolder.getFolders();
+  const logData = logSheet.getDataRange().getValues();
+  const seenSheetIds = new Set();
+  const responseSheets = [];
+
+  for (let i = 1; i < logData.length; i++) {
+    const row = logData[i];
+    const classCode = (row[2] || "").toString().trim();
+    const responseUrl = (row[6] || "").toString().trim();
+    if (!responseUrl) continue;
+
+    const match = responseUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match) continue;
+
+    const sheetId = match[1];
+    if (seenSheetIds.has(sheetId)) continue;
+    seenSheetIds.add(sheetId);
+
+    responseSheets.push({
+      classCode: classCode,
+      sheetId: sheetId
+    });
+  }
+
+  if (responseSheets.length === 0) {
+    SpreadsheetApp.getUi().alert("Không tìm thấy response sheet hợp lệ trong Form Logger.");
+    return;
+  }
 
   let headersSet = false;
+  let maxCols = 1;
 
-  while (subfolders.hasNext()) {
-    const formFolder = subfolders.next();
-    const files = formFolder.getFilesByType(MimeType.GOOGLE_SHEETS);
-
-    while (files.hasNext()) {
-      const responseFile = files.next();
-      const responseSs = SpreadsheetApp.openById(responseFile.getId());
+  responseSheets.forEach(item => {
+    try {
+      const responseSs = SpreadsheetApp.openById(item.sheetId);
       const responseSheet = responseSs.getSheets()[0];
-      let data = responseSheet.getDataRange().getValues();
+      const data = responseSheet.getDataRange().getValues();
 
-      if (data.length > 1) {
-        // --- Set header if not yet ---
-        if (!headersSet) {
-          const formHeaders = data[0].slice(1); // header from response sheet
-          targetSheet.appendRow(["Class Name", ...formHeaders]);
-          targetSheet.getRange(1, 1, 1, 14).setFontWeight("bold").setBackground("#d9ead3");
-          headersSet = true;
-        }
+      if (data.length <= 1) return;
 
-        // --- Append data rows ---
-        for (let i = 1; i < data.length; i++) {
-          const row = data[i].slice(1);
-          // Get class name from form title (response sheet name: "Responses - {ClassName}")
-          const className = responseSs.getName().replace("Responses -", "").trim().split(" - ").pop();
-          targetSheet.appendRow([className, ...row]);
-        }
+      if (!headersSet) {
+        const formHeaders = data[0].slice(1);
+        targetSheet.appendRow(["Class Name", ...formHeaders]);
+        maxCols = Math.max(maxCols, formHeaders.length + 1);
+        headersSet = true;
       }
+
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i].slice(1);
+        const className = item.classCode || responseSs.getName().replace("Responses -", "").trim().split(" - ").pop();
+        targetSheet.appendRow([className, ...row]);
+        maxCols = Math.max(maxCols, row.length + 1);
+      }
+    } catch (e) {
+      Logger.log(`Skip response sheet ${item.sheetId}: ${e.message}`);
     }
+  });
+
+  if (targetSheet.getLastRow() >= 1) {
+    targetSheet.getRange(1, 1, 1, maxCols).setFontWeight("bold").setBackground("#d9ead3");
   }
 
   SpreadsheetApp.getUi().alert("Sync complete!");
@@ -221,7 +256,7 @@ function getClassListFromFormLogger() {
     });
   }
 
-  Logger.log (result)
+  Logger.log(result)
 
   return result;
 }
@@ -273,8 +308,8 @@ function downloadClassListFile(responseSheetId, subject, classCode, format) {
  * Chuyển mảng 2D thành CSV string
  */
 function convertToCSV(data) {
-  return data.map(function(row) {
-    return row.map(function(cell) {
+  return data.map(function (row) {
+    return row.map(function (cell) {
       var val = (cell === null || cell === undefined) ? "" : cell.toString();
       // Escape double quotes và wrap nếu chứa ký tự đặc biệt
       if (val.indexOf(",") > -1 || val.indexOf('"') > -1 || val.indexOf("\n") > -1) {

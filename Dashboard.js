@@ -116,16 +116,6 @@ function UpdateDashBoard() {
       const requiredCount = rule.numberOfFiles || 0;
       const actualCount = fileList.length;
 
-      // Submission status
-      let submissionStatus = "";
-      if (actualCount === 0) {
-        submissionStatus = "Not submitted";
-      } else if (actualCount < requiredCount) {
-        submissionStatus = `Incomplete (${actualCount}/${requiredCount})`;
-      } else {
-        submissionStatus = `Complete (${actualCount}/${requiredCount})`;
-      }
-
       // Extension requirement - chỉ kiểm tra khi có file
       const requiredExtensions = rule.fileTypes || [];
       let extensionStatus = "";
@@ -192,6 +182,20 @@ function UpdateDashBoard() {
           if (missing.length > 0) issues.push(`Thiếu: ${missing.join(', ')}`);
           if (extra.length > 0) issues.push(`Thừa: ${extra.join(', ')}`);
           extensionStatus = issues.join(' | ');
+        }
+      }
+
+      // Submission status
+      // Chỉ "Complete" khi: có nộp, đúng số lượng yêu cầu và không lỗi extension.
+      let submissionStatus = "";
+      if (actualCount === 0) {
+        submissionStatus = "Not submitted";
+      } else {
+        const isCountValid = actualCount === requiredCount;
+        if (isCountValid && isExtensionValid) {
+          submissionStatus = `Complete (${actualCount}/${requiredCount})`;
+        } else {
+          submissionStatus = `Incomplete (${actualCount}/${requiredCount})`;
         }
       }
 
