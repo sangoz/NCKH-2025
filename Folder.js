@@ -383,10 +383,20 @@ function createClassDrive(inputClassname, obj) {
   }
 
   // === Step 2: userprofile/groups ===
+  const failedGroups = [];
   groups.forEach(group => {
-    let ids = addGroupToClass(classname, group);
-    Logger.log(JSON.stringify(ids, null, 2)); // log ID tree of group
+    try {
+      let ids = addGroupToClass(classname, group);
+      Logger.log(JSON.stringify(ids, null, 2)); // log ID tree of group
+    } catch (e) {
+      failedGroups.push({ group: group, error: e.message });
+      Logger.log(`❌ addGroupToClass failed for ${classname}/${group}: ${e.message}`);
+    }
   });
+
+  if (failedGroups.length > 0) {
+    Logger.log(`⚠️ Some groups failed while generating class ${classname}: ${JSON.stringify(failedGroups)}`);
+  }
 }
 
 /**
@@ -421,7 +431,12 @@ function addGroupToClass(classname, groupName) {
 
   // === Apply permissions for this group ===
   const members = getGroupMembers(classname, groupName);
-  applyGroupPermissions(groupFolder, members);
+  try {
+    applyGroupPermissions(groupFolder, members);
+  } catch (e) {
+    // Không chặn luồng tạo folder nếu có lỗi quyền ở một group.
+    Logger.log(`Permission apply failed for ${classname}/${groupName}: ${e.message}`);
+  }
 
   // Return ID tree
   const ids = collectFolderIds(groupFolder)
@@ -432,26 +447,58 @@ function addGroupToClass(classname, groupName) {
  * === PERMISSIONS HANDLING ===
  * Sử dụng DriveApp (gửi email) thay vì Drive API để tránh lỗi
  */
-function applyGroupPermissions(folder, groupMembers) {
-  // 1. Reset link-sharing: restricted
-  folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
-
-  // 2. Remove old permissions (cách đơn giản)
-  const file = DriveApp.getFileById(folder.getId());
-
-  // Remove all editors except owner
-  file.getEditors().forEach(user => {
+function driveWithRetry(operation, label, maxAttempts = 3) {
+  let lastError = null;
+  for (let i = 1; i <= maxAttempts; i++) {
     try {
-      file.removeEditor(user);
+      return operation();
+    } catch (e) {
+      lastError = e;
+      Logger.log(`Drive attempt ${i}/${maxAttempts} failed [${label}]: ${e.message}`);
+      if (i < maxAttempts) {
+        Utilities.sleep(i * 250);
+      }
+    }
+  }
+  throw lastError;
+}
+
+function applyGroupPermissions(folder, groupMembers) {
+  // Không reset sharing ở đây để tránh lỗi Drive service trên một số môi trường Drive/Shared Drive.
+
+  // 1. Remove old permissions (không dùng getFileById cho folder)
+  let editors = [];
+  try {
+    editors = driveWithRetry(() => folder.getEditors(), `getEditors:${folder.getId()}`) || [];
+  } catch (e) {
+    Logger.log("Cannot list editors for " + folder.getName() + ": " + e.message);
+  }
+
+  editors.forEach(user => {
+    try {
+      driveWithRetry(() => {
+        folder.removeEditor(user);
+        return true;
+      }, `removeEditor:${folder.getId()}:${user.getEmail()}`);
     } catch (e) {
       Logger.log("Cannot remove editor " + user.getEmail() + ": " + e.message);
     }
   });
 
-  // Remove all viewers except owner
-  file.getViewers().forEach(user => {
+  // 2. Remove all viewers
+  let viewers = [];
+  try {
+    viewers = driveWithRetry(() => folder.getViewers(), `getViewers:${folder.getId()}`) || [];
+  } catch (e) {
+    Logger.log("Cannot list viewers for " + folder.getName() + ": " + e.message);
+  }
+
+  viewers.forEach(user => {
     try {
-      file.removeViewer(user);
+      driveWithRetry(() => {
+        folder.removeViewer(user);
+        return true;
+      }, `removeViewer:${folder.getId()}:${user.getEmail()}`);
     } catch (e) {
       Logger.log("Cannot remove viewer " + user.getEmail() + ": " + e.message);
     }
@@ -461,7 +508,10 @@ function applyGroupPermissions(folder, groupMembers) {
   groupMembers.forEach(email => {
     if (email) {
       try {
-        folder.addViewer(email);
+        driveWithRetry(() => {
+          folder.addViewer(email);
+          return true;
+        }, `addViewer:${folder.getId()}:${email}`);
       } catch (e) {
         Logger.log("Failed to add " + email + ": " + e.message);
       }
@@ -471,7 +521,12 @@ function applyGroupPermissions(folder, groupMembers) {
   // 4. Recurse for subfolders
   const subfolders = folder.getFolders();
   while (subfolders.hasNext()) {
-    applyGroupPermissions(subfolders.next(), groupMembers);
+    const child = subfolders.next();
+    try {
+      applyGroupPermissions(child, groupMembers);
+    } catch (e) {
+      Logger.log(`Permission recursion failed at ${child.getName()}: ${e.message}`);
+    }
   }
 }
 
@@ -479,16 +534,54 @@ function applyGroupPermissions(folder, groupMembers) {
  * Remove all editors and viewers except the owner
  */
 function removeNonOwnerPermissions(folderId) {
-  const file = Drive.Files.get(folderId, { fields: 'owners,permissions(id,type,emailAddress,role)' });
-  const ownerEmails = file.owners.map(o => o.emailAddress);
-  const permissions = file.permissions || [];
+  const folder = driveWithRetry(() => DriveApp.getFolderById(folderId), `getFolderById:${folderId}`);
 
-  permissions.forEach(p => {
-    if (p.type === 'user' && p.emailAddress && !ownerEmails.includes(p.emailAddress)) {
+  let ownerEmail = "";
+  try {
+    const owner = driveWithRetry(() => folder.getOwner(), `getOwner:${folderId}`);
+    ownerEmail = owner ? owner.getEmail() : "";
+  } catch (e) {
+    Logger.log(`Cannot read owner for ${folderId}: ${e.message}`);
+  }
+
+  let editors = [];
+  try {
+    editors = driveWithRetry(() => folder.getEditors(), `getEditors:${folderId}`) || [];
+  } catch (e) {
+    Logger.log(`Cannot list editors for ${folderId}: ${e.message}`);
+  }
+
+  editors.forEach(user => {
+    const email = user.getEmail();
+    if (email && email !== ownerEmail) {
       try {
-        Drive.Permissions.remove(folderId, p.id);
+        driveWithRetry(() => {
+          folder.removeEditor(email);
+          return true;
+        }, `removeEditor:${folderId}:${email}`);
       } catch (e) {
-        Logger.log("Cannot remove " + p.emailAddress + ": " + e.message);
+        Logger.log("Cannot remove editor " + email + ": " + e.message);
+      }
+    }
+  });
+
+  let viewers = [];
+  try {
+    viewers = driveWithRetry(() => folder.getViewers(), `getViewers:${folderId}`) || [];
+  } catch (e) {
+    Logger.log(`Cannot list viewers for ${folderId}: ${e.message}`);
+  }
+
+  viewers.forEach(user => {
+    const email = user.getEmail();
+    if (email && email !== ownerEmail) {
+      try {
+        driveWithRetry(() => {
+          folder.removeViewer(email);
+          return true;
+        }, `removeViewer:${folderId}:${email}`);
+      } catch (e) {
+        Logger.log("Cannot remove viewer " + email + ": " + e.message);
       }
     }
   });
@@ -498,24 +591,22 @@ function removeNonOwnerPermissions(folderId) {
  * Add editor without sending email
  */
 function addEditorNoEmail(fileId, email) {
-  const permission = {
-    'type': 'user',
-    'role': 'writer',
-    'emailAddress': email
-  };
-  Drive.Permissions.create(permission, fileId, { sendNotificationEmail: false });
+  const folder = driveWithRetry(() => DriveApp.getFolderById(fileId), `getFolderById:${fileId}`);
+  driveWithRetry(() => {
+    folder.addEditor(email);
+    return true;
+  }, `addEditor:${fileId}:${email}`);
 }
 
 /**
  * Add viewer without sending email
  */
 function addViewerNoEmail(fileId, email) {
-  const permission = {
-    'type': 'user',
-    'role': 'reader',
-    'emailAddress': email
-  };
-  Drive.Permissions.create(permission, fileId, { sendNotificationEmail: false });
+  const folder = driveWithRetry(() => DriveApp.getFolderById(fileId), `getFolderById:${fileId}`);
+  driveWithRetry(() => {
+    folder.addViewer(email);
+    return true;
+  }, `addViewer:${fileId}:${email}`);
 }
 
 /**
@@ -525,38 +616,145 @@ function updateDrivePermissions(folderId, emails, permission) {
   try {
     if (!folderId || !emails || emails.length === 0) return;
 
-    // Xóa tất cả permissions hiện tại (trừ owner)
-    removeNonOwnerPermissions(folderId);
+    const folderRole = normalizePermissionValue(permission);
+    if (!folderRole) {
+      throw new Error(`Permission không hợp lệ: ${permission}`);
+    }
 
-    // Thêm permissions mới
-    emails.forEach(email => {
-      if (email && email.trim() !== '') {
-        try {
-          if (permission === 'editor') {
-            addEditorNoEmail(folderId, email.trim());
-          } else if (permission === 'viewer') {
-            addViewerNoEmail(folderId, email.trim());
-          }
-          // Nếu permission === 'none' thì không làm gì (đã xóa ở trên)
-        } catch (e) {
-          Logger.log(`Failed to add ${permission} permission for ${email}: ${e.message}`);
-        }
+    const token = ScriptApp.getOAuthToken();
+    const currentPermissions = listFolderPermissionsByApi(folderId, token);
+    const ownerEmails = new Set();
+
+    currentPermissions.forEach(p => {
+      if (p.type === 'user' && p.role === 'owner' && p.emailAddress) {
+        ownerEmails.add(p.emailAddress.toLowerCase());
       }
     });
 
-    Logger.log(`Updated permissions for folder ${folderId}: ${emails.join(', ')} as ${permission}`);
+    const wantedEmails = new Set(
+      emails
+        .map(email => (email || '').toString().trim().toLowerCase())
+        .filter(email => email)
+    );
+
+    currentPermissions.forEach(p => {
+      if (p.type !== 'user' || !p.emailAddress || !p.id) return;
+      const email = p.emailAddress.toLowerCase();
+      if (ownerEmails.has(email)) return;
+      if (!wantedEmails.has(email)) {
+        deletePermissionByApi(folderId, p.id, token);
+      }
+    });
+
+    wantedEmails.forEach(email => {
+      const existing = currentPermissions.filter(p => p.type === 'user' && p.emailAddress && p.emailAddress.toLowerCase() === email);
+      existing.forEach(p => {
+        if (p.role !== 'owner') {
+          deletePermissionByApi(folderId, p.id, token);
+        }
+      });
+      createPermissionByApi(folderId, email, folderRole, token);
+    });
+
+    Logger.log(`Updated permissions for folder ${folderId}: ${Array.from(wantedEmails).join(', ')} as ${folderRole}`);
   } catch (error) {
     Logger.log(`Error updating drive permissions: ${error.message}`);
+    throw error;
+  }
+}
+
+function listFolderPermissionsByApi(folderId, token) {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}/permissions?supportsAllDrives=true&fields=permissions(id,emailAddress,role,type)`;
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(`List permissions failed (${response.getResponseCode()}): ${response.getContentText()}`);
+  }
+
+  const body = JSON.parse(response.getContentText() || '{}');
+  return body.permissions || [];
+}
+
+function deletePermissionByApi(folderId, permissionId, token) {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}/permissions/${encodeURIComponent(permissionId)}?supportsAllDrives=true`;
+  const response = UrlFetchApp.fetch(url, {
+    method: 'delete',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(`Delete permission failed (${response.getResponseCode()}): ${response.getContentText()}`);
+  }
+}
+
+function createPermissionByApi(folderId, email, permission, token) {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}/permissions?supportsAllDrives=true&sendNotificationEmail=false`;
+  const role = permission === 'editor' ? 'writer' : permission === 'viewer' ? 'reader' : permission;
+  const payload = {
+    type: 'user',
+    role: role,
+    emailAddress: email
+  };
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(`Create permission failed (${response.getResponseCode()}): ${response.getContentText()}`);
+  }
+}
+
+function clearDirectPermissionForEmail(folderId, email) {
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    try {
+      folder.removeEditor(email);
+    } catch (e) {
+      // Ignore if not an editor.
+    }
+
+    try {
+      folder.removeViewer(email);
+    } catch (e) {
+      // Ignore if not a viewer.
+    }
+
+    // commenter is only available via Advanced Drive Service; keep safe fallback.
+    if (typeof Drive !== 'undefined' && Drive.Permissions && Drive.Permissions.list) {
+      try {
+        const permissionList = Drive.Permissions.list(folderId, { fields: 'permissions(id,emailAddress,role,type)' });
+        const permissions = (permissionList && permissionList.permissions) || [];
+        permissions.forEach(p => {
+          if (p.type === 'user' && p.emailAddress && p.emailAddress.toLowerCase() === email.toLowerCase()) {
+            try {
+              Drive.Permissions.remove(folderId, p.id);
+            } catch (e) {
+              Logger.log(`Cannot remove direct permission for ${email}: ${e.message}`);
+            }
+          }
+        });
+      } catch (e) {
+        Logger.log(`Cannot inspect advanced permissions for ${email}: ${e.message}`);
+      }
+    }
+  } catch (error) {
+    Logger.log(`Error clearing direct permission for ${email}: ${error.message}`);
   }
 }
 // Cập nhật function addCommenterNoEmail mới
 function addCommenterNoEmail(fileId, email) {
-  const permission = {
-    'type': 'user',
-    'role': 'commenter',
-    'emailAddress': email
-  };
-  Drive.Permissions.create(permission, fileId, { sendNotificationEmail: false });
+  const token = ScriptApp.getOAuthToken();
+  createPermissionByApi(fileId, email, 'commenter', token);
 }
 
 // Cập nhật function writePermissionsSheet - UPDATE thay vì ghi đè
@@ -610,11 +808,21 @@ function writePermissionsSheet(classname) {
   const existingData = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
   const existingHeader = existingData.length > 0 ? existingData[0] : [];
 
-  // 4) Cập nhật header nếu cần (thêm cột mới)
-  if (newHeader.length > existingHeader.length) {
+  // 4) Chuẩn hóa header: luôn đúng schema hiện tại (không giữ cột legacy).
+  const currentLastCol = Math.max(sheet.getLastColumn(), 1);
+  const currentHeader = sheet.getRange(1, 1, 1, currentLastCol).getValues()[0];
+  const sameHeader = currentHeader.length === newHeader.length &&
+    newHeader.every((h, idx) => (currentHeader[idx] || "") === h);
+
+  if (!sameHeader) {
     sheet.getRange(1, 1, 1, newHeader.length).setValues([newHeader])
       .setBackground("#d9ead3").setFontWeight("bold");
-    Logger.log(`📝 Đã mở rộng header từ ${existingHeader.length} → ${newHeader.length} cột`);
+
+    if (currentLastCol > newHeader.length) {
+      sheet.deleteColumns(newHeader.length + 1, currentLastCol - newHeader.length);
+    }
+
+    Logger.log(`📝 Đã chuẩn hóa header Permissions về ${newHeader.length} cột`);
   }
 
   const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -997,7 +1205,17 @@ function getOrCreateFolder(parent, name) {
  */
 function createFolders(nodes, parent) {
   nodes.forEach(node => {
-    let folder = parent.createFolder(node.name);
+    const folderName = (node && node.name ? node.name : '').toString().trim();
+
+    // Bỏ qua node rỗng để tránh Drive service error khi createFolder("").
+    if (!folderName) {
+      if (node && node.children && node.children.length > 0) {
+        createFolders(node.children, parent);
+      }
+      return;
+    }
+
+    let folder = driveWithRetry(() => parent.createFolder(folderName), `createFolder:${folderName}`);
     if (node.children && node.children.length > 0) {
       createFolders(node.children, folder);
     }
@@ -1009,18 +1227,48 @@ function createFolders(nodes, parent) {
  */
 function copyContents(source, target) {
   // Copy files
-  const files = source.getFiles();
-  while (files.hasNext()) {
-    const file = files.next();
-    file.makeCopy(file.getName(), target);
+  let files;
+  try {
+    files = driveWithRetry(() => source.getFiles(), `getFiles:${source.getName()}`);
+  } catch (e) {
+    Logger.log(`Cannot read files in ${source.getName()}: ${e.message}`);
+    files = null;
+  }
+
+  if (files) {
+    while (files.hasNext()) {
+      const file = files.next();
+      try {
+        driveWithRetry(() => file.makeCopy(file.getName(), target), `makeCopy:${file.getName()}`);
+      } catch (e) {
+        // Một file lỗi không nên làm hỏng toàn bộ generate.
+        Logger.log(`Skip copy file ${file.getName()}: ${e.message}`);
+      }
+    }
   }
 
   // Copy subfolders
-  const subfolders = source.getFolders();
-  while (subfolders.hasNext()) {
-    const subfolder = subfolders.next();
-    const newSub = target.createFolder(subfolder.getName());
-    copyContents(subfolder, newSub);
+  let subfolders;
+  try {
+    subfolders = driveWithRetry(() => source.getFolders(), `getFolders:${source.getName()}`);
+  } catch (e) {
+    Logger.log(`Cannot read subfolders in ${source.getName()}: ${e.message}`);
+    subfolders = null;
+  }
+
+  if (subfolders) {
+    while (subfolders.hasNext()) {
+      const subfolder = subfolders.next();
+      try {
+        const newSub = driveWithRetry(
+          () => target.createFolder(subfolder.getName()),
+          `createSubFolder:${subfolder.getName()}`
+        );
+        copyContents(subfolder, newSub);
+      } catch (e) {
+        Logger.log(`Skip subfolder ${subfolder.getName()}: ${e.message}`);
+      }
+    }
   }
 }
 
@@ -1304,8 +1552,13 @@ function updateClassFolderStructure(classname, obj) {
   }
 
   // Sync cấu trúc template
-  syncFolderStructure(templateFolder, obj, oldTemplateStructure);
-  Logger.log("✅ Đã sync template");
+  try {
+    syncFolderStructure(templateFolder, obj, oldTemplateStructure);
+    Logger.log("✅ Đã sync template");
+  } catch (e) {
+    Logger.log(`❌ Sync template failed for ${classname}: ${e.message}`);
+    throw e;
+  }
 
   // Cập nhật tất cả các group folder
   const groups = getAllGroupOfClass(classname);
@@ -1325,13 +1578,17 @@ function updateClassFolderStructure(classname, obj) {
     const oldGroupStructure = collectFolderIds(groupFolder).children || [];
 
     // Sync cấu trúc
-    syncFolderStructure(groupFolder, obj, oldGroupStructure);
+    try {
+      syncFolderStructure(groupFolder, obj, oldGroupStructure);
 
-    // Áp dụng lại permissions cho folder mới
-    const members = getGroupMembers(classname, groupName);
-    applyGroupPermissionsToNewFolders(groupFolder, obj, members);
+      // Áp dụng lại permissions cho folder mới
+      const members = getGroupMembers(classname, groupName);
+      applyGroupPermissionsToNewFolders(groupFolder, obj, members);
 
-    Logger.log(`✅ Đã cập nhật folder cho group ${groupName}`);
+      Logger.log(`✅ Đã cập nhật folder cho group ${groupName}`);
+    } catch (e) {
+      Logger.log(`❌ Sync group folder failed for ${groupName}: ${e.message}`);
+    }
   });
 
   return { success: true, message: "Đã cập nhật cấu trúc folder trên Drive thành công" };
@@ -1347,11 +1604,26 @@ function syncFolderStructure(parentFolder, newStructure, oldStructureWithIds) {
   if (!newStructure || newStructure.length === 0) {
     // Nếu structure mới rỗng → XÓA tất cả folder con
     Logger.log(`⚠️ Structure mới rỗng, xóa tất cả folder trong "${parentFolder.getName()}"`);
-    const subfolders = parentFolder.getFolders();
-    while (subfolders.hasNext()) {
-      const folder = subfolders.next();
-      Logger.log(`🗑️ Xóa folder: "${folder.getName()}"`);
-      folder.setTrashed(true);
+    let subfolders = null;
+    try {
+      subfolders = driveWithRetry(() => parentFolder.getFolders(), `getFolders:${parentFolder.getId()}`);
+    } catch (e) {
+      Logger.log(`Cannot list subfolders in ${parentFolder.getName()}: ${e.message}`);
+    }
+
+    if (subfolders) {
+      while (subfolders.hasNext()) {
+        const folder = subfolders.next();
+        try {
+          Logger.log(`🗑️ Xóa folder: "${folder.getName()}"`);
+          driveWithRetry(() => {
+            folder.setTrashed(true);
+            return true;
+          }, `trashFolder:${folder.getId()}`);
+        } catch (e) {
+          Logger.log(`Cannot trash folder ${folder.getName()}: ${e.message}`);
+        }
+      }
     }
     return;
   }
@@ -1361,15 +1633,27 @@ function syncFolderStructure(parentFolder, newStructure, oldStructureWithIds) {
   const folderById = {}; // id → Folder object
   const folderByName = {}; // name → Folder object
 
-  const subfolders = parentFolder.getFolders();
-  while (subfolders.hasNext()) {
-    const folder = subfolders.next();
-    const name = folder.getName();
-    const id = folder.getId();
+  let subfolders = null;
+  try {
+    subfolders = driveWithRetry(() => parentFolder.getFolders(), `getFolders:${parentFolder.getId()}`);
+  } catch (e) {
+    Logger.log(`Cannot list folders in ${parentFolder.getName()}: ${e.message}`);
+  }
 
-    existingFolders.push({ name, id, folder });
-    folderById[id] = folder;
-    folderByName[name] = folder;
+  if (subfolders) {
+    while (subfolders.hasNext()) {
+      const folder = subfolders.next();
+      try {
+        const name = folder.getName();
+        const id = folder.getId();
+
+        existingFolders.push({ name, id, folder });
+        folderById[id] = folder;
+        folderByName[name] = folder;
+      } catch (e) {
+        Logger.log(`Skip unreadable folder under ${parentFolder.getName()}: ${e.message}`);
+      }
+    }
   }
 
   // Build map: tên mới → old ID (để detect rename)
@@ -1435,20 +1719,33 @@ function syncFolderStructure(parentFolder, newStructure, oldStructureWithIds) {
       }
       // Case 3: TẠO folder mới
       else {
-        currentFolder = parentFolder.createFolder(nodeName);
-        folderId = currentFolder.getId();
-        processedIds.add(folderId);
-        Logger.log(`✨ Tạo folder mới: "${nodeName}" (ID: ${folderId})`);
+        try {
+          currentFolder = driveWithRetry(() => parentFolder.createFolder(nodeName), `createFolder:${parentFolder.getId()}:${nodeName}`);
+          folderId = currentFolder.getId();
+          processedIds.add(folderId);
+          Logger.log(`✨ Tạo folder mới: "${nodeName}" (ID: ${folderId})`);
+        } catch (e) {
+          Logger.log(`❌ Cannot create folder "${nodeName}" in ${parentFolder.getName()}: ${e.message}`);
+          return;
+        }
       }
     }
 
     // Đệ quy với các folder con
     if (currentFolder) {
       if (node.children && node.children.length > 0) {
-        syncFolderStructure(currentFolder, node.children, oldChildrenStructure);
+        try {
+          syncFolderStructure(currentFolder, node.children, oldChildrenStructure);
+        } catch (e) {
+          Logger.log(`❌ Sync children failed at ${currentFolder.getName()}: ${e.message}`);
+        }
       } else if (node.children && node.children.length === 0 && oldChildrenStructure) {
         // Nếu children mới rỗng nhưng cũ có children → XÓA tất cả subfolder
-        syncFolderStructure(currentFolder, [], oldChildrenStructure);
+        try {
+          syncFolderStructure(currentFolder, [], oldChildrenStructure);
+        } catch (e) {
+          Logger.log(`❌ Clear children failed at ${currentFolder.getName()}: ${e.message}`);
+        }
       }
     }
   });
@@ -1457,7 +1754,14 @@ function syncFolderStructure(parentFolder, newStructure, oldStructureWithIds) {
   existingFolders.forEach(({ name, id, folder }) => {
     if (!processedIds.has(id)) {
       Logger.log(`🗑️ Xóa folder không còn trong structure: "${name}" (ID: ${id})`);
-      folder.setTrashed(true);
+      try {
+        driveWithRetry(() => {
+          folder.setTrashed(true);
+          return true;
+        }, `trashFolder:${id}`);
+      } catch (e) {
+        Logger.log(`Cannot trash obsolete folder ${name} (${id}): ${e.message}`);
+      }
     }
   });
 
@@ -1583,49 +1887,6 @@ function sheetToObjectByClassname(classname = 'IE107') {
 /**
  * Xử lý sheet Permissions
  */
-
-// Cập nhật function updateDrivePermissions
-function updateDrivePermissions(folderId, emails, permission) {
-  try {
-    if (!folderId || !emails || emails.length === 0) return;
-
-    // Xóa tất cả permissions hiện tại (trừ owner)
-    removeNonOwnerPermissions(folderId);
-
-    // Thêm permissions mới
-    emails.forEach(email => {
-      if (email && email.trim() !== '') {
-        try {
-          switch (permission) {
-            case 'owner':
-              // Owner không thể add bằng API, chỉ có thể transfer
-              Logger.log(`Cannot add owner permission for ${email} - use transfer instead`);
-              break;
-            case 'editor':
-              addEditorNoEmail(folderId, email.trim());
-              break;
-            case 'commenter':
-              addCommenterNoEmail(folderId, email.trim());
-              break;
-            case 'viewer':
-              addViewerNoEmail(folderId, email.trim());
-              break;
-            default:
-              Logger.log(`Unknown permission type: ${permission}`);
-          }
-        } catch (e) {
-          Logger.log(`Failed to add ${permission} permission for ${email}: ${e.message}`);
-        }
-      }
-    });
-
-    Logger.log(`Updated permissions for folder ${folderId}: ${emails.join(', ')} as ${permission}`);
-  } catch (error) {
-    Logger.log(`Error updating drive permissions: ${error.message}`);
-  }
-}
-
-
 function updatePerrmissions() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1636,58 +1897,130 @@ function updatePerrmissions() {
       return;
     }
 
-    const data = permSheet.getDataRange().getValues();
-    if (data.length <= 1) {
+    const range = permSheet.getDataRange();
+    const data = range.getValues();
+    const formulas = range.getFormulas();
+
+    if (data.length === 0) {
       SpreadsheetApp.getUi().alert('Sheet Permissions trống.');
       return;
     }
 
-    const header = data[0];
-    const emailColIndices = [];
-    const permColIndices = [];
-    const folderIdColIndices = [];
+    const hasHeader = (data[0][0] || "").toString().trim() === "Class name";
+    const startRow = hasHeader ? 1 : 0;
 
-    // Tìm các cột cần thiết
-    for (let i = 0; i < header.length; i++) {
-      if (header[i] === "Emails") emailColIndices.push(i);
-      if (header[i] === "Permission") permColIndices.push(i);
-      if (header[i] === "Folder ID") folderIdColIndices.push(i);
-    }
+    // Gom theo folderId -> email -> permission theo đúng thứ tự dòng.
+    const folderPermissionMap = {};
 
-    let updatedCount = 0;
-
-    // Duyệt qua từng row để cập nhật permissions
-    for (let rowIdx = 1; rowIdx < data.length; rowIdx++) {
+    for (let rowIdx = startRow; rowIdx < data.length; rowIdx++) {
       const row = data[rowIdx];
+      const rowFormulas = formulas[rowIdx] || [];
 
-      // Duyệt qua từng cặp Email-Permission-FolderID
-      for (let colIdx = 0; colIdx < emailColIndices.length; colIdx++) {
-        const emailCol = emailColIndices[colIdx];
-        const permCol = permColIndices[colIdx];
-        const folderIdCol = folderIdColIndices[colIdx];
+      for (let folderCol = 0; folderCol < rowFormulas.length; folderCol++) {
+        const formula = rowFormulas[folderCol];
+        const folderId = extractFolderIdFromFormula(formula);
+        if (!folderId) continue;
+
+        // Layout thực tế:
+        // - Group name ở cột B(1), Emails ở D(3), Permission ở E(4)
+        // - LEVEL n ở cột F/I/L..., Emails ngay sau đó, Permission kế tiếp
+        const emailCol = folderCol === 1 ? 3 : folderCol + 1;
+        const permCol = folderCol === 1 ? 4 : folderCol + 2;
+
+        if (emailCol >= row.length || permCol >= row.length) continue;
 
         const emailsStr = row[emailCol];
-        const permission = row[permCol];
-        const folderId = row[folderIdCol];
+        const permission = normalizePermissionValue(row[permCol]);
+        if (!emailsStr || !permission) continue;
 
-        if (!emailsStr || !permission || !folderId) continue;
+        const emails = emailsStr
+          .toString()
+          .split(/[;,\n]/)
+          .map(e => e.trim().toLowerCase())
+          .filter(e => e);
 
-        // Parse emails
-        const emails = emailsStr.toString().split(',').map(e => e.trim()).filter(e => e);
+        if (emails.length === 0) continue;
 
-        if (emails.length > 0) {
-          // Cập nhật permissions trên Drive
-          updateDrivePermissions(folderId, emails, permission);
-          updatedCount += emails.length;
+        if (!folderPermissionMap[folderId]) {
+          folderPermissionMap[folderId] = {};
         }
+
+        emails.forEach(email => {
+          // Tôn trọng giá trị Permission theo đúng dòng người dùng chỉnh sửa.
+          // Nếu email xuất hiện nhiều lần trong cùng folder, dòng dưới sẽ ghi đè dòng trên.
+          folderPermissionMap[folderId][email] = permission;
+        });
       }
     }
 
-    SpreadsheetApp.getUi().alert(`Đã cập nhật permissions thành công.`);
+    let appliedCount = 0;
+    let folderCount = 0;
+
+    Object.keys(folderPermissionMap).forEach(folderId => {
+      const emailPermission = folderPermissionMap[folderId];
+      const emails = Object.keys(emailPermission);
+      if (emails.length === 0) return;
+
+      try {
+        folderCount++;
+        removeNonOwnerPermissions(folderId);
+
+        emails.forEach(email => {
+          const permission = emailPermission[email];
+          try {
+            switch (permission) {
+              case 'owner':
+                // Không thể set owner trực tiếp bằng create permission, fallback editor.
+                addEditorNoEmail(folderId, email);
+                break;
+              case 'editor':
+                addEditorNoEmail(folderId, email);
+                break;
+              case 'commenter':
+                addCommenterNoEmail(folderId, email);
+                break;
+              case 'viewer':
+                addViewerNoEmail(folderId, email);
+                break;
+              default:
+                return;
+            }
+            appliedCount++;
+          } catch (e) {
+            Logger.log(`Failed to apply ${permission} for ${email} on ${folderId}: ${e.message}`);
+          }
+        });
+      } catch (folderError) {
+        Logger.log(`Skip folder ${folderId} due to Drive error: ${folderError.message}`);
+      }
+    });
+
+    SpreadsheetApp.getUi().alert(`✅ Đã cập nhật ${appliedCount} quyền trên ${folderCount} folder.`);
+    Logger.log(`✅ Updated ${appliedCount} permissions across ${folderCount} folders`);
 
   } catch (error) {
-    SpreadsheetApp.getUi().alert('Lỗi cập nhật permissions: ' + error.toString());
-    console.error('Error updating permissions:', error);
+    SpreadsheetApp.getUi().alert('❌ Lỗi cập nhật permissions: ' + error.toString());
+    Logger.log('Error updating permissions: ' + error);
   }
+}
+
+function normalizePermissionValue(permission) {
+  if (!permission) return null;
+  const p = permission.toString().trim().toLowerCase();
+  if (p === 'commentor') return 'commenter';
+  if (p === 'owner' || p === 'editor' || p === 'commenter' || p === 'viewer') return p;
+  return null;
+}
+
+/**
+ * Helper function: Extract Folder ID từ hyperlink formula
+ * Formula format: =HYPERLINK("https://drive.google.com/drive/folders/[FOLDER_ID]"; "[NAME]")
+ */
+function extractFolderIdFromFormula(formula) {
+  if (!formula || typeof formula !== 'string') return null;
+  
+  // Pattern: /folders/[FOLDER_ID]
+  const match = formula.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
 }
 
