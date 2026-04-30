@@ -364,38 +364,60 @@ function getGroupMembers(classname = 'COMP1314', groupname = 'Nhóm kia tào lao
 
 
 function createClassDrive(inputClassname, obj) {
+  try {
+    const classname = inputClassname;
+    const data = obj
 
-  const classname = inputClassname;
-  const data = obj
+    const groups = getAllGroupOfClass(classname);
 
-  const groups = getAllGroupOfClass(classname);
-
-  const parentFolder = getSpreadsheetParent();
-
-  // === Step 1: temp/classA/_template ===
-  let tempFolder = getOrCreateFolder(parentFolder, "temp");
-  let classFolder = getOrCreateFolder(tempFolder, classname);
-  let templateFolder = getOrCreateFolder(classFolder, "_template");
-
-  // Build template once if empty
-  if (!templateFolder.getFolders().hasNext() && !templateFolder.getFiles().hasNext()) {
-    createFolders(data, templateFolder);
-  }
-
-  // === Step 2: userprofile/groups ===
-  const failedGroups = [];
-  groups.forEach(group => {
-    try {
-      let ids = addGroupToClass(classname, group);
-      Logger.log(JSON.stringify(ids, null, 2)); // log ID tree of group
-    } catch (e) {
-      failedGroups.push({ group: group, error: e.message });
-      Logger.log(`❌ addGroupToClass failed for ${classname}/${group}: ${e.message}`);
+    const parentFolder = getSpreadsheetParent();
+    if (!parentFolder) {
+      Logger.log("⚠️ Cannot access spreadsheet parent folder");
+      return;
     }
-  });
 
-  if (failedGroups.length > 0) {
-    Logger.log(`⚠️ Some groups failed while generating class ${classname}: ${JSON.stringify(failedGroups)}`);
+    // === Step 1: temp/classA/_template ===
+    let tempFolder = getOrCreateFolder(parentFolder, "temp");
+    if (!tempFolder) {
+      Logger.log("⚠️ Cannot access/create temp folder");
+      return;
+    }
+
+    let classFolder = getOrCreateFolder(tempFolder, classname);
+    if (!classFolder) {
+      Logger.log("⚠️ Cannot access/create class folder");
+      return;
+    }
+
+    let templateFolder = getOrCreateFolder(classFolder, "_template");
+    if (!templateFolder) {
+      Logger.log("⚠️ Cannot access/create template folder");
+      return;
+    }
+
+    // Build template once if empty
+    if (!templateFolder.getFolders().hasNext() && !templateFolder.getFiles().hasNext()) {
+      createFolders(data, templateFolder);
+    }
+
+    // === Step 2: userprofile/groups ===
+    const failedGroups = [];
+    groups.forEach(group => {
+      try {
+        let ids = addGroupToClass(classname, group);
+        Logger.log(JSON.stringify(ids, null, 2)); // log ID tree of group
+      } catch (e) {
+        failedGroups.push({ group: group, error: e.message });
+        Logger.log(`❌ addGroupToClass failed for ${classname}/${group}: ${e.message}`);
+      }
+    });
+
+    if (failedGroups.length > 0) {
+      Logger.log(`⚠️ Some groups failed while generating class ${classname}: ${JSON.stringify(failedGroups)}`);
+    }
+  } catch (e) {
+    Logger.log(`❌ CRITICAL ERROR in createClassDrive: ${e.message}`);
+    throw e;
   }
 }
 
@@ -405,43 +427,70 @@ function createClassDrive(inputClassname, obj) {
  * - groupName: e.g. "group05"
  */
 function addGroupToClass(classname, groupName) {
-  const parentFolder = getSpreadsheetParent();
-
-  // === Find template: temp/classA/_template ===
-  let tempFolder = getOrCreateFolder(parentFolder, "temp");
-  let classFolder = getOrCreateFolder(tempFolder, classname);
-  let templateFolders = classFolder.getFoldersByName("_template");
-  if (!templateFolders.hasNext()) {
-    throw new Error("No _template folder found for " + classname);
-  }
-  let templateFolder = templateFolders.next();
-
-  // === userprofile/groupName ===
-  let userProfileFolder = getOrCreateFolder(parentFolder, "userprofile");
-  let classProfileFolder = getOrCreateFolder(userProfileFolder, classname)
-  let groupFolder = getOrCreateFolder(classProfileFolder, groupName);
-
-  // If empty, copy template into it
-  if (!groupFolder.getFolders().hasNext() && !groupFolder.getFiles().hasNext()) {
-    copyContents(templateFolder, groupFolder);
-    Logger.log("Created new group: " + groupName);
-  } else {
-    Logger.log("Group " + groupName + " already exists, skipped copy");
-  }
-
-  // === Apply permissions for this group ===
-  const members = getGroupMembers(classname, groupName);
   try {
-    applyGroupPermissions(groupFolder, members);
-  } catch (e) {
-    // Không chặn luồng tạo folder nếu có lỗi quyền ở một group.
-    Logger.log(`Permission apply failed for ${classname}/${groupName}: ${e.message}`);
-  }
+    const parentFolder = getSpreadsheetParent();
+    if (!parentFolder) {
+      throw new Error("Cannot access spreadsheet parent folder");
+    }
 
-  // Return ID tree
-  const ids = collectFolderIds(groupFolder)
-  Logger.log(ids)
-  return ids;
+    // === Find template: temp/classA/_template ===
+    let tempFolder = getOrCreateFolder(parentFolder, "temp");
+    if (!tempFolder) {
+      throw new Error("Cannot access/create temp folder");
+    }
+
+    let classFolder = getOrCreateFolder(tempFolder, classname);
+    if (!classFolder) {
+      throw new Error("Cannot access/create class folder");
+    }
+
+    let templateFolders = classFolder.getFoldersByName("_template");
+    if (!templateFolders.hasNext()) {
+      throw new Error("No _template folder found for " + classname);
+    }
+    let templateFolder = templateFolders.next();
+
+    // === userprofile/groupName ===
+    let userProfileFolder = getOrCreateFolder(parentFolder, "userprofile");
+    if (!userProfileFolder) {
+      throw new Error("Cannot access/create userprofile folder");
+    }
+
+    let classProfileFolder = getOrCreateFolder(userProfileFolder, classname);
+    if (!classProfileFolder) {
+      throw new Error("Cannot access/create class profile folder");
+    }
+
+    let groupFolder = getOrCreateFolder(classProfileFolder, groupName);
+    if (!groupFolder) {
+      throw new Error("Cannot access/create group folder");
+    }
+
+    // If empty, copy template into it
+    if (!groupFolder.getFolders().hasNext() && !groupFolder.getFiles().hasNext()) {
+      copyContents(templateFolder, groupFolder);
+      Logger.log("Created new group: " + groupName);
+    } else {
+      Logger.log("Group " + groupName + " already exists, skipped copy");
+    }
+
+    // === Apply permissions for this group ===
+    const members = getGroupMembers(classname, groupName);
+    try {
+      applyGroupPermissions(groupFolder, members);
+    } catch (e) {
+      // Không chặn luồng tạo folder nếu có lỗi quyền ở một group.
+      Logger.log(`Permission apply failed for ${classname}/${groupName}: ${e.message}`);
+    }
+
+    // Return ID tree
+    const ids = collectFolderIds(groupFolder)
+    Logger.log(ids)
+    return ids;
+  } catch (e) {
+    Logger.log(`❌ CRITICAL ERROR in addGroupToClass: ${e.message}`);
+    throw e;
+  }
 }
 /**
  * === PERMISSIONS HANDLING ===
@@ -457,6 +506,28 @@ function driveWithRetry(operation, label, maxAttempts = 3) {
       Logger.log(`Drive attempt ${i}/${maxAttempts} failed [${label}]: ${e.message}`);
       if (i < maxAttempts) {
         Utilities.sleep(i * 250);
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Exponential backoff retry for eventual-consistency Drive delays.
+ * Defaults to 4 attempts with 10s initial delay (10s,20s,40s...).
+ */
+function exponentialBackoff(operation, label, maxAttempts = 4, initialDelayMs = 10000) {
+  let lastError = null;
+  let delay = initialDelayMs;
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      return operation();
+    } catch (e) {
+      lastError = e;
+      Logger.log(`Backoff attempt ${i}/${maxAttempts} failed [${label}]: ${e.message}`);
+      if (i < maxAttempts) {
+        Utilities.sleep(delay);
+        delay = delay * 2;
       }
     }
   }
@@ -759,218 +830,239 @@ function addCommenterNoEmail(fileId, email) {
 
 // Cập nhật function writePermissionsSheet - UPDATE thay vì ghi đè
 function writePermissionsSheet(classname) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("Permissions");
-  if (!sheet) {
-    sheet = ss.insertSheet("Permissions");
-    // Tạo header cho sheet mới (KHÔNG có Folder ID)
-    const initHeader = ["Class name", "Group name", "Role", "Emails", "Permission"];
-    sheet.getRange(1, 1, 1, initHeader.length).setValues([initHeader])
-      .setBackground("#d9ead3").setFontWeight("bold");
-  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Permissions");
+    if (!sheet) {
+      sheet = ss.insertSheet("Permissions");
+      // Tạo header cho sheet mới (KHÔNG có Folder ID)
+      const initHeader = ["Class name", "Group name", "Role", "Emails", "Permission"];
+      sheet.getRange(1, 1, 1, initHeader.length).setValues([initHeader])
+        .setBackground("#d9ead3").setFontWeight("bold");
+    }
 
-  const root = getSpreadsheetParent();
-  const userprofile = getOrCreateFolder(root, "userprofile");
-  const classFolder = getOrCreateFolder(userprofile, classname);
-
-  // 1) Lấy nhóm có folder trong Drive
-  const groupsFromSheet = getAllGroupOfClass(classname);
-  const groupsInfo = [];
-  let globalMaxDepth = 0;
-
-  groupsFromSheet.forEach(group => {
-    const groupIter = classFolder.getFoldersByName(group);
-    if (!groupIter.hasNext()) {
-      Logger.log("Skip group (no folder): " + group);
+    const classFolder = findClassProfileFolder(classname, getAllGroupOfClass(classname));
+    if (!classFolder) {
+      Logger.log("⚠️ Cannot locate class folder, skipping permissions");
       return;
     }
-    const groupFolder = groupIter.next();
-    const tree = collectFolderIds(groupFolder);
-    const depth = getMaxDepth(tree);
-    globalMaxDepth = Math.max(globalMaxDepth, depth);
-    const members = getGroupMembers(classname, group);
-    groupsInfo.push({ name: group, members: members, tree: tree });
-  });
 
-  if (groupsInfo.length === 0) {
-    Logger.log("⚠️ No groups with folders found for class: " + classname);
-    return;
-  }
+    // 1) Lấy nhóm có folder trong Drive
+    const groupsFromSheet = getAllGroupOfClass(classname);
+    const groupsInfo = [];
+    let globalMaxDepth = 0;
 
-  // 2) Xác định header cần thiết (KHÔNG có Folder ID)
-  const levelsCount = Math.max(0, globalMaxDepth - 1);
-  const newHeader = ["Class name", "Group name", "Role", "Emails", "Permission"];
-  for (let i = 1; i <= levelsCount; i++) {
-    newHeader.push(`LEVEL ${i}`, "Emails", "Permission");
-  }
+    groupsFromSheet.forEach(group => {
+      try {
+        const groupIter = exponentialBackoff(
+          () => classFolder.getFoldersByName(group),
+          `getFoldersByName:${classname}/${group}`
+        );
+        if (!groupIter.hasNext()) {
+          Logger.log("Skip group (no folder): " + group);
+          return;
+        }
+        const groupFolder = groupIter.next();
+        const tree = collectFolderIds(groupFolder);
+        const depth = getMaxDepth(tree);
+        globalMaxDepth = Math.max(globalMaxDepth, depth);
+        const members = getGroupMembers(classname, group);
+        groupsInfo.push({ name: group, members: members, tree: tree });
+      } catch (e) {
+        Logger.log(`⚠️ Cannot process group ${group}: ${e.message}`);
+        // Skip this group and continue with others
+      }
+    });
 
-  // 3) Đọc dữ liệu hiện có để UPDATE
-  const existingData = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
-  const existingHeader = existingData.length > 0 ? existingData[0] : [];
-
-  // 4) Chuẩn hóa header: luôn đúng schema hiện tại (không giữ cột legacy).
-  const currentLastCol = Math.max(sheet.getLastColumn(), 1);
-  const currentHeader = sheet.getRange(1, 1, 1, currentLastCol).getValues()[0];
-  const sameHeader = currentHeader.length === newHeader.length &&
-    newHeader.every((h, idx) => (currentHeader[idx] || "") === h);
-
-  if (!sameHeader) {
-    sheet.getRange(1, 1, 1, newHeader.length).setValues([newHeader])
-      .setBackground("#d9ead3").setFontWeight("bold");
-
-    if (currentLastCol > newHeader.length) {
-      sheet.deleteColumns(newHeader.length + 1, currentLastCol - newHeader.length);
+    if (groupsInfo.length === 0) {
+      Logger.log("⚠️ No groups with folders found for class: " + classname);
+      return;
     }
 
-    Logger.log(`📝 Đã chuẩn hóa header Permissions về ${newHeader.length} cột`);
-  }
-
-  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-
-  function levelBaseIndex(level) {
-    return 5 + (level - 1) * 3; // 0-based, mỗi level có 3 cột: Name, Emails, Permission
-  }
-
-  // 5) XÓA tất cả rows cũ của class này (sẽ ghi lại toàn bộ)
-  const classnameIdx = existingHeader.indexOf("Class name");
-  const rowsToDelete = [];
-
-  for (let i = 1; i < existingData.length; i++) {
-    const cn = (existingData[i][classnameIdx] || "").toString().trim();
-    if (cn === classname) {
-      rowsToDelete.push(i + 1); // Sheet row (1-based)
+    // 2) Xác định header cần thiết (KHÔNG có Folder ID)
+    const levelsCount = Math.max(0, globalMaxDepth - 1);
+    const newHeader = ["Class name", "Group name", "Role", "Emails", "Permission"];
+    for (let i = 1; i <= levelsCount; i++) {
+      newHeader.push(`LEVEL ${i}`, "Emails", "Permission");
     }
-  }
 
-  // Xóa từ dưới lên để không lệch index
-  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
-    sheet.deleteRow(rowsToDelete[i]);
-  }
+    // 3) Đọc dữ liệu hiện có để UPDATE
+    const existingData = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
+    const existingHeader = existingData.length > 0 ? existingData[0] : [];
 
-  Logger.log(`🗑️ Đã xóa ${rowsToDelete.length} rows cũ của class ${classname}`);
+    // 4) Chuẩn hóa header: luôn đúng schema hiện tại (không giữ cột legacy).
+    const currentLastCol = Math.max(sheet.getLastColumn(), 1);
+    const currentHeader = sheet.getRange(1, 1, 1, currentLastCol).getValues()[0];
+    const sameHeader = currentHeader.length === newHeader.length &&
+      newHeader.every((h, idx) => (currentHeader[idx] || "") === h);
 
-  // 6) Build ALL rows mới hoàn toàn
-  const allNewRows = [];
-  const folderLinksToSet = []; // Lưu thông tin để set link sau
+    if (!sameHeader) {
+      sheet.getRange(1, 1, 1, newHeader.length).setValues([newHeader])
+        .setBackground("#d9ead3").setFontWeight("bold");
 
-  groupsInfo.forEach(info => {
-    const members = info.members || [];
-    const leader = members.length > 0 ? members[0] : "";
-    const otherMembers = members.slice(1);
+      if (currentLastCol > newHeader.length) {
+        sheet.deleteColumns(newHeader.length + 1, currentLastCol - newHeader.length);
+      }
 
-    function traverse(node, level = 0) {
-      const leaderRow = Array(header.length).fill("");
-      const membersRow = Array(header.length).fill("");
+      Logger.log(`📝 Đã chuẩn hóa header Permissions về ${newHeader.length} cột`);
+    }
 
-      if (level === 0) {
-        // Root level - Group folder
-        leaderRow[0] = classname;
-        leaderRow[1] = info.name;
-        leaderRow[2] = "Leader";
-        leaderRow[3] = leader;
-        leaderRow[4] = "editor";
+    const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 
-        membersRow[0] = classname;
-        membersRow[1] = info.name;
-        membersRow[2] = "Members";
-        membersRow[3] = otherMembers.join(", ");
-        membersRow[4] = "viewer";
+    function levelBaseIndex(level) {
+      return 5 + (level - 1) * 3; // 0-based, mỗi level có 3 cột: Name, Emails, Permission
+    }
 
-        const rowIndex = allNewRows.length;
-        allNewRows.push(leaderRow);
-        allNewRows.push(membersRow);
+    // 5) XÓA tất cả rows cũ của class này (sẽ ghi lại toàn bộ)
+    const classnameIdx = existingHeader.indexOf("Class name");
+    const rowsToDelete = [];
 
-        // Lưu thông tin để set link cho Group name (cột B)
-        folderLinksToSet.push({
-          row: rowIndex,
-          col: 1, // Group name column (0-based)
-          name: info.name,
-          folderId: node.id
-        });
-        folderLinksToSet.push({
-          row: rowIndex + 1,
-          col: 1, // Group name column (0-based)
-          name: info.name,
-          folderId: node.id
-        });
+    for (let i = 1; i < existingData.length; i++) {
+      const cn = (existingData[i][classnameIdx] || "").toString().trim();
+      if (cn === classname) {
+        rowsToDelete.push(i + 1); // Sheet row (1-based)
+      }
+    }
 
-      } else {
-        // Sub-level folders
-        const base = levelBaseIndex(level);
-        if (base + 2 < header.length) {
+    // Xóa từ dưới lên để không lệch index
+    for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+      sheet.deleteRow(rowsToDelete[i]);
+    }
+
+    Logger.log(`🗑️ Đã xóa ${rowsToDelete.length} rows cũ của class ${classname}`);
+
+    // 6) Build ALL rows mới hoàn toàn
+    const allNewRows = [];
+    const folderLinksToSet = []; // Lưu thông tin để set link sau
+
+    groupsInfo.forEach(info => {
+      const members = info.members || [];
+      const leader = members.length > 0 ? members[0] : "";
+      const otherMembers = members.slice(1);
+
+      function traverse(node, level = 0) {
+        const leaderRow = Array(header.length).fill("");
+        const membersRow = Array(header.length).fill("");
+
+        if (level === 0) {
+          // Root level - Group folder
           leaderRow[0] = classname;
           leaderRow[1] = info.name;
           leaderRow[2] = "Leader";
-          leaderRow[base] = node.name || "";
-          leaderRow[base + 1] = leader;
-          leaderRow[base + 2] = "editor";
+          leaderRow[3] = leader;
+          leaderRow[4] = "editor";
 
           membersRow[0] = classname;
           membersRow[1] = info.name;
           membersRow[2] = "Members";
-          membersRow[base] = node.name || "";
-          membersRow[base + 1] = otherMembers.join(", ");
-          membersRow[base + 2] = "viewer";
+          membersRow[3] = otherMembers.join(", ");
+          membersRow[4] = "viewer";
 
           const rowIndex = allNewRows.length;
           allNewRows.push(leaderRow);
           allNewRows.push(membersRow);
 
-          // Lưu thông tin để set link cho LEVEL name
+          // Lưu thông tin để set link cho Group name (cột B)
           folderLinksToSet.push({
             row: rowIndex,
-            col: base, // LEVEL column (0-based)
-            name: node.name,
+            col: 1, // Group name column (0-based)
+            name: info.name,
             folderId: node.id
           });
           folderLinksToSet.push({
             row: rowIndex + 1,
-            col: base, // LEVEL column (0-based)
-            name: node.name,
+            col: 1, // Group name column (0-based)
+            name: info.name,
             folderId: node.id
           });
+
+        } else {
+          // Sub-level folders
+          const base = levelBaseIndex(level);
+          if (base + 2 < header.length) {
+            leaderRow[0] = classname;
+            leaderRow[1] = info.name;
+            leaderRow[2] = "Leader";
+            leaderRow[base] = node.name || "";
+            leaderRow[base + 1] = leader;
+            leaderRow[base + 2] = "editor";
+
+            membersRow[0] = classname;
+            membersRow[1] = info.name;
+            membersRow[2] = "Members";
+            membersRow[base] = node.name || "";
+            membersRow[base + 1] = otherMembers.join(", ");
+            membersRow[base + 2] = "viewer";
+
+            const rowIndex = allNewRows.length;
+            allNewRows.push(leaderRow);
+            allNewRows.push(membersRow);
+
+            // Lưu thông tin để set link cho LEVEL name
+            folderLinksToSet.push({
+              row: rowIndex,
+              col: base, // LEVEL column (0-based)
+              name: node.name,
+              folderId: node.id
+            });
+            folderLinksToSet.push({
+              row: rowIndex + 1,
+              col: base, // LEVEL column (0-based)
+              name: node.name,
+              folderId: node.id
+            });
+          }
+        }
+
+        if (node.children && node.children.length > 0) {
+          node.children.forEach(child => traverse(child, level + 1));
         }
       }
 
-      if (node.children && node.children.length > 0) {
-        node.children.forEach(child => traverse(child, level + 1));
-      }
-    }
-
-    traverse(info.tree, 0);
-  });
-
-  // 7) Insert tất cả rows mới vào sheet
-  if (allNewRows.length > 0) {
-    const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, allNewRows.length, header.length).setValues(allNewRows);
-
-    // 8) Set links cho folder names
-    folderLinksToSet.forEach(linkInfo => {
-      const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
-      const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
-      const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
-      cell.setFormula(formula);
+      traverse(info.tree, 0);
     });
 
-    // 9) Áp dụng data validation cho Permission columns (KHÔNG cho LEVEL columns)
-    const permRule = SpreadsheetApp.newDataValidation()
-      .requireValueInList(["owner", "editor", "commenter", "viewer"], true)
-      .setAllowInvalid(true)
-      .build();
+    // 7) Insert tất cả rows mới vào sheet
+    if (allNewRows.length > 0) {
+      const startRow = sheet.getLastRow() + 1;
+      sheet.getRange(startRow, 1, allNewRows.length, header.length).setValues(allNewRows);
 
-    for (let i = 0; i < header.length; i++) {
-      // Chỉ áp dụng validation cho cột Permission, KHÔNG cho LEVEL
-      if (header[i] === "Permission") {
-        sheet.getRange(startRow, i + 1, allNewRows.length).setDataValidation(permRule);
+      // 8) Set links cho folder names
+      folderLinksToSet.forEach(linkInfo => {
+        const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
+        const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
+        const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
+        cell.setFormula(formula);
+      });
+
+      // 9) Áp dụng data validation cho Permission columns (KHÔNG cho LEVEL columns)
+      const permRule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(["owner", "editor", "commenter", "viewer"], true)
+        .setAllowInvalid(true)
+        .build();
+
+      for (let i = 0; i < header.length; i++) {
+        // Chỉ áp dụng validation cho cột Permission, KHÔNG cho LEVEL
+        if (header[i] === "Permission") {
+          sheet.getRange(startRow, i + 1, allNewRows.length).setDataValidation(permRule);
+        }
       }
+
+      Logger.log(`✅ Đã ghi ${allNewRows.length} rows cho class ${classname} vào Permissions sheet`);
+      Logger.log(`✅ Đã set ${folderLinksToSet.length} folder links`);
     }
 
-    Logger.log(`✅ Đã ghi ${allNewRows.length} rows cho class ${classname} vào Permissions sheet`);
-    Logger.log(`✅ Đã set ${folderLinksToSet.length} folder links`);
+    Logger.log(`✅ Hoàn tất UPDATE Permissions sheet cho class ${classname}`);
+    return { success: true, message: `Permissions sheet updated for ${classname}` };
+  } catch (e) {
+    Logger.log(`❌ CRITICAL ERROR in writePermissionsSheet: ${e.message}`);
+    Logger.log(`Stack: ${e.stack}`);
+    return {
+      success: false,
+      message: `Permissions step skipped: ${e.message}`,
+      error: e.message
+    };
   }
-
-  Logger.log(`✅ Hoàn tất UPDATE Permissions sheet cho class ${classname}`);
 }
 
 /**
@@ -978,154 +1070,187 @@ function writePermissionsSheet(classname) {
  * Được gọi khi Generate hoặc Change folder structure
  */
 function writeDashboardSheet(classname) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("Dashboard");
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Dashboard");
 
-  // Tạo hoặc cập nhật header
-  const expectedHeader = ["Class name", "Group name", "Assignment", "Due day", "Submission status", "Extension requirement", "Last submission", "Overdue"];
+    // Tạo hoặc cập nhật header
+    const expectedHeader = ["Class name", "Group name", "Assignment", "Due day", "Submission status", "Extension requirement", "Last submission", "Overdue"];
 
-  if (!sheet) {
-    sheet = ss.insertSheet("Dashboard");
-  }
+    if (!sheet) {
+      sheet = ss.insertSheet("Dashboard");
+    }
 
-  // Đảm bảo header luôn tồn tại và đúng
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, expectedHeader.length).setValues([expectedHeader])
-      .setBackground("#c9daf8").setFontWeight("bold");
-  } else {
-    // Kiểm tra và cập nhật header nếu cần
-    const currentHeader = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), expectedHeader.length)).getValues()[0];
-    if (currentHeader.length < expectedHeader.length || currentHeader[0] !== expectedHeader[0]) {
+    // Đảm bảo header luôn tồn tại và đúng
+    if (sheet.getLastRow() === 0) {
       sheet.getRange(1, 1, 1, expectedHeader.length).setValues([expectedHeader])
         .setBackground("#c9daf8").setFontWeight("bold");
+    } else {
+      // Kiểm tra và cập nhật header nếu cần
+      const currentHeader = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), expectedHeader.length)).getValues()[0];
+      if (currentHeader.length < expectedHeader.length || currentHeader[0] !== expectedHeader[0]) {
+        sheet.getRange(1, 1, 1, expectedHeader.length).setValues([expectedHeader])
+          .setBackground("#c9daf8").setFontWeight("bold");
+      }
     }
-  }
 
-  const root = getSpreadsheetParent();
-  const userprofile = getOrCreateFolder(root, "userprofile");
-  const classFolder = getOrCreateFolder(userprofile, classname);
-
-  // 1) Lấy nhóm có folder trong Drive
-  const groupsFromSheet = getAllGroupOfClass(classname);
-  const groupsInfo = [];
-
-  groupsFromSheet.forEach(group => {
-    const groupIter = classFolder.getFoldersByName(group);
-    if (!groupIter.hasNext()) {
-      Logger.log("Skip group (no folder): " + group);
+    const classFolder = findClassProfileFolder(classname, getAllGroupOfClass(classname));
+    if (!classFolder) {
+      Logger.log("⚠️ Cannot locate class folder, skipping dashboard");
       return;
     }
-    const groupFolder = groupIter.next();
-    const tree = collectFolderIds(groupFolder);
-    const members = getGroupMembers(classname, group);
-    groupsInfo.push({ name: group, members: members, tree: tree });
-  });
 
-  if (groupsInfo.length === 0) {
-    Logger.log("⚠️ No groups with folders found for class: " + classname);
-    return;
-  }
+    // 1) Lấy nhóm có folder trong Drive
+    const groupsFromSheet = getAllGroupOfClass(classname);
+    const groupsInfo = [];
 
-  // Lấy header sau khi đã đảm bảo tồn tại
-  const header = expectedHeader;
+    groupsFromSheet.forEach(group => {
+      try {
+        const groupIter = driveWithRetry(
+          () => classFolder.getFoldersByName(group),
+          `getFoldersByName:${classname}/${group}`
+        );
+        if (!groupIter.hasNext()) {
+          Logger.log("Skip group (no folder): " + group);
+          return;
+        }
+        const groupFolder = groupIter.next();
+        const tree = collectFolderIds(groupFolder);
+        const members = getGroupMembers(classname, group);
+        groupsInfo.push({ name: group, members: members, tree: tree });
+      } catch (e) {
+        Logger.log(`⚠️ Cannot process group ${group}: ${e.message}`);
+        // Skip this group and continue with others
+      }
+    });
 
-  // 2) XÓA tất cả rows cũ của class này
-  const existingData = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
-  const classnameIdx = 0; // Class name ở cột đầu tiên
-  const rowsToDelete = [];
-
-  for (let i = 1; i < existingData.length; i++) {
-    const cn = (existingData[i][classnameIdx] || "").toString().trim();
-    if (cn === classname) {
-      rowsToDelete.push(i + 1);
+    if (groupsInfo.length === 0) {
+      Logger.log("⚠️ No groups with folders found for class: " + classname);
+      return;
     }
-  }
 
-  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
-    sheet.deleteRow(rowsToDelete[i]);
-  }
+    // Lấy header sau khi đã đảm bảo tồn tại
+    const header = expectedHeader;
 
-  Logger.log(`🗑️ Đã xóa ${rowsToDelete.length} rows cũ của class ${classname} trong Dashboard`);
+    // 2) XÓA tất cả rows cũ của class này
+    const existingData = sheet.getLastRow() > 0 ? sheet.getDataRange().getValues() : [];
+    const classnameIdx = 0; // Class name ở cột đầu tiên
+    const rowsToDelete = [];
 
-  // 3) Build rows mới
-  const allNewRows = [];
-  const assignmentLinksToSet = [];
-  const groupLinksToSet = [];
+    for (let i = 1; i < existingData.length; i++) {
+      const cn = (existingData[i][classnameIdx] || "").toString().trim();
+      if (cn === classname) {
+        rowsToDelete.push(i + 1);
+      }
+    }
 
-  groupsInfo.forEach(info => {
-    // Lấy ID của group folder
-    const groupFolderIter = classFolder.getFoldersByName(info.name);
-    const groupFolderId = groupFolderIter.hasNext() ? groupFolderIter.next().getId() : null;
+    for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+      sheet.deleteRow(rowsToDelete[i]);
+    }
 
-    function traverse(node, level = 0) {
-      // Lấy TẤT CẢ các folders (trừ root level)
-      if (level > 0) {
-        const row = Array(header.length).fill("");
-        row[0] = classname;
-        row[1] = info.name;
-        row[2] = node.name; // Assignment name
-        row[3] = ""; // Due day - để trống
-        row[4] = ""; // Submission status - để trống
-        row[5] = ""; // Extension requirement - để trống
-        row[6] = ""; // Last submission - để trống
-        row[7] = ""; // Overdue - để trống
+    Logger.log(`🗑️ Đã xóa ${rowsToDelete.length} rows cũ của class ${classname} trong Dashboard`);
 
-        const rowIndex = allNewRows.length;
-        allNewRows.push(row);
+    // 3) Build rows mới
+    const allNewRows = [];
+    const assignmentLinksToSet = [];
+    const groupLinksToSet = [];
 
-        // Lưu thông tin để set link cho Group name
-        if (groupFolderId) {
-          groupLinksToSet.push({
-            row: rowIndex,
-            col: 1, // Group name column (0-based)
-            name: info.name,
-            folderId: groupFolderId
-          });
+    groupsInfo.forEach(info => {
+      // Lấy ID của group folder
+      let groupFolderId = null;
+      try {
+        const groupFolderIter = driveWithRetry(
+          () => classFolder.getFoldersByName(info.name),
+          `getFoldersByName:${classname}/${info.name}`
+        );
+        groupFolderId = groupFolderIter.hasNext() ? groupFolderIter.next().getId() : null;
+      } catch (e) {
+        Logger.log(`⚠️ Cannot resolve group folder id for ${info.name}: ${e.message}`);
+      }
+
+      function traverse(node, level = 0) {
+        // Add a row for the group root so Dashboard shows something even without assignments
+        if (level === 0) {
+          const row = Array(header.length).fill("");
+          row[0] = classname;
+          row[1] = info.name;
+          row[2] = ""; // Assignment name empty for group root
+          row[3] = ""; // Due day
+          row[4] = ""; // Submission status
+          row[5] = ""; // Extension requirement
+          row[6] = ""; // Last submission
+          row[7] = ""; // Overdue
+
+          const rowIndex = allNewRows.length;
+          allNewRows.push(row);
+
+          // Set group link for this root row
+          if (groupFolderId) {
+            groupLinksToSet.push({ row: rowIndex, col: 1, name: info.name, folderId: groupFolderId });
+          }
+        } else {
+          // Lấy TẤT CẢ các folders (trừ root level)
+          const row = Array(header.length).fill("");
+          row[0] = classname;
+          row[1] = info.name;
+          row[2] = node.name; // Assignment name
+          row[3] = ""; // Due day - để trống
+          row[4] = ""; // Submission status - để trống
+          row[5] = ""; // Extension requirement - để trống
+          row[6] = ""; // Last submission - để trống
+          row[7] = ""; // Overdue - để trống
+
+          const rowIndex = allNewRows.length;
+          allNewRows.push(row);
+
+          // Lưu thông tin để set link cho Group name
+          if (groupFolderId) {
+            groupLinksToSet.push({ row: rowIndex, col: 1, name: info.name, folderId: groupFolderId });
+          }
+
+          // Lưu thông tin để set link cho Assignment
+          assignmentLinksToSet.push({ row: rowIndex, col: 2, name: node.name, folderId: node.id });
         }
 
-        // Lưu thông tin để set link cho Assignment
-        assignmentLinksToSet.push({
-          row: rowIndex,
-          col: 2, // Assignment column (0-based)
-          name: node.name,
-          folderId: node.id
-        });
+        // Đệ quy vào children
+        if (node.children && node.children.length > 0) {
+          node.children.forEach(child => traverse(child, level + 1));
+        }
       }
 
-      // Đệ quy vào children
-      if (node.children && node.children.length > 0) {
-        node.children.forEach(child => traverse(child, level + 1));
-      }
+      traverse(info.tree, 0);
+    });
+
+    // 4) Insert rows mới vào sheet
+    if (allNewRows.length > 0) {
+      const startRow = sheet.getLastRow() + 1;
+      sheet.getRange(startRow, 1, allNewRows.length, header.length).setValues(allNewRows);
+
+      // 5) Set hyperlink cho Group name column
+      groupLinksToSet.forEach(linkInfo => {
+        const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
+        const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
+        const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
+        cell.setFormula(formula);
+      });
+
+      // 6) Set hyperlink cho Assignment column
+      assignmentLinksToSet.forEach(linkInfo => {
+        const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
+        const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
+        const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
+        cell.setFormula(formula);
+      });
+
+      Logger.log(`✅ Đã ghi ${allNewRows.length} rows cho class ${classname} vào Dashboard sheet`);
     }
 
-    traverse(info.tree, 0);
-  });
-
-  // 4) Insert rows mới vào sheet
-  if (allNewRows.length > 0) {
-    const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, allNewRows.length, header.length).setValues(allNewRows);
-
-    // 5) Set hyperlink cho Group name column
-    groupLinksToSet.forEach(linkInfo => {
-      const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
-      const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
-      const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
-      cell.setFormula(formula);
-    });
-
-    // 6) Set hyperlink cho Assignment column
-    assignmentLinksToSet.forEach(linkInfo => {
-      const cell = sheet.getRange(startRow + linkInfo.row, linkInfo.col + 1);
-      const folderUrl = `https://drive.google.com/drive/folders/${linkInfo.folderId}`;
-      const formula = `=HYPERLINK("${folderUrl}"; "${linkInfo.name}")`;
-      cell.setFormula(formula);
-    });
-
-    Logger.log(`✅ Đã ghi ${allNewRows.length} rows cho class ${classname} vào Dashboard sheet`);
+    Logger.log(`✅ Hoàn tất UPDATE Dashboard sheet cho class ${classname}`);
+  } catch (e) {
+    Logger.log(`❌ CRITICAL ERROR in writeDashboardSheet: ${e.message}`);
+    Logger.log(`Stack: ${e.stack}`);
+    return { success: false, message: `Dashboard step skipped: ${e.message}`, error: e.message };
   }
-
-  Logger.log(`✅ Hoàn tất UPDATE Dashboard sheet cho class ${classname}`);
 }
 
 
@@ -1155,13 +1280,34 @@ function getMaxDepth(node, depth = 1) {
  * Thu thập ID + details thư mục
  */
 function collectFolderIdsWithDetails(folder) {
+  let folderName = "";
+  let folderId = "";
   const children = [];
-  const subfolders = folder.getFolders();
-  while (subfolders.hasNext()) {
-    const sub = subfolders.next();
-    children.push(collectFolderIdsWithDetails(sub));
+
+  try {
+    folderName = folder.getName();
+    folderId = folder.getId();
+  } catch (e) {
+    Logger.log(`⚠️ Cannot read folder metadata: ${e.message}`);
+    return { name: "[Error]", id: "", children: [] };
   }
-  return { name: folder.getName(), id: folder.getId(), children: children };
+
+  try {
+    const subfolders = folder.getFolders();
+    while (subfolders.hasNext()) {
+      try {
+        const sub = subfolders.next();
+        children.push(collectFolderIdsWithDetails(sub));
+      } catch (e) {
+        Logger.log(`⚠️ Cannot read subfolder: ${e.message}`);
+        continue;
+      }
+    }
+  } catch (e) {
+    Logger.log(`⚠️ Cannot list subfolders for ${folderName}: ${e.message}`);
+  }
+
+  return { name: folderName, id: folderId, children: children };
 }
 
 
@@ -1171,15 +1317,39 @@ function collectFolderIdsWithDetails(folder) {
 /**
  * Recursively collect IDs of a folder and its subfolders
  * returns { name, id, children: [] }
+ * - Gracefully handles Drive service failures without crashing
  */
 function collectFolderIds(folder) {
   let children = [];
-  const subfolders = folder.getFolders();
-  while (subfolders.hasNext()) {
-    const sub = subfolders.next();
-    children.push(collectFolderIds(sub));
+  let folderName = "";
+  let folderId = "";
+
+  try {
+    folderName = folder.getName();
+    folderId = folder.getId();
+  } catch (e) {
+    Logger.log(`⚠️ Cannot read folder metadata: ${e.message}`);
+    return { name: "[Error]", id: "", children: [] };
   }
-  return { name: folder.getName(), id: folder.getId(), children: children };
+
+  try {
+    const subfolders = folder.getFolders();
+    while (subfolders.hasNext()) {
+      try {
+        const sub = subfolders.next();
+        children.push(collectFolderIds(sub));
+      } catch (e) {
+        Logger.log(`⚠️ Cannot read subfolder: ${e.message}`);
+        // Skip this subfolder and continue with others
+        continue;
+      }
+    }
+  } catch (e) {
+    Logger.log(`⚠️ Cannot list subfolders for ${folderName}: ${e.message}`);
+    // Return what we have so far instead of throwing
+  }
+
+  return { name: folderName, id: folderId, children: children };
 }
 
 
@@ -1187,17 +1357,94 @@ function collectFolderIds(folder) {
  * Utility: get parent folder of spreadsheet (or root)
  */
 function getSpreadsheetParent() {
-  const ssFile = DriveApp.getFileById(SpreadsheetApp.getActive().getId());
-  const parents = ssFile.getParents();
-  return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  try {
+    const ssFile = DriveApp.getFileById(SpreadsheetApp.getActive().getId());
+    const parents = ssFile.getParents();
+    return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  } catch (e) {
+    Logger.log(`⚠️ Cannot get spreadsheet parent: ${e.message}, using Root folder`);
+    return DriveApp.getRootFolder();
+  }
 }
 
 /**
  * Utility: get or create subfolder
+ * - Retries on Drive service errors
+ * - Returns null if creation/access fails
  */
 function getOrCreateFolder(parent, name) {
-  let folders = parent.getFoldersByName(name);
-  return folders.hasNext() ? folders.next() : parent.createFolder(name);
+  try {
+    let folders = driveWithRetry(() => parent.getFoldersByName(name), `getFoldersByName:${name}`);
+    if (folders.hasNext()) {
+      return folders.next();
+    }
+  } catch (e) {
+    Logger.log(`⚠️ Cannot list folders ${name}: ${e.message}`);
+  }
+
+  try {
+    return driveWithRetry(() => parent.createFolder(name), `createFolder:${name}`);
+  } catch (e) {
+    Logger.log(`⚠️ Cannot create folder ${name}: ${e.message}`);
+    // If we can't create it, try to find it one more time
+    try {
+      let folders = parent.getFoldersByName(name);
+      if (folders.hasNext()) {
+        return folders.next();
+      }
+    } catch (e2) {
+      Logger.log(`⚠️ Cannot find folder ${name} after creation failed: ${e2.message}`);
+    }
+    return null; // Return null if completely failed
+  }
+}
+
+/**
+ * Find the class folder under any userprofile tree.
+ * Prefers a class folder that already contains expected groups.
+ */
+function findClassProfileFolder(classname, expectedGroups = []) {
+  try {
+    const profiles = DriveApp.getFoldersByName("userprofile");
+    let fallbackClassFolder = null;
+
+    while (profiles.hasNext()) {
+      const profileFolder = profiles.next();
+      const classFolders = profileFolder.getFoldersByName(classname);
+
+      while (classFolders.hasNext()) {
+        const classFolder = classFolders.next();
+
+        if (!expectedGroups || expectedGroups.length === 0) {
+          return classFolder;
+        }
+
+        let matchCount = 0;
+        expectedGroups.forEach(groupName => {
+          try {
+            if (classFolder.getFoldersByName(groupName).hasNext()) {
+              matchCount++;
+            }
+          } catch (e) {
+            // Ignore unreadable folders while scoring candidates.
+          }
+        });
+
+        if (matchCount > 0) {
+          return classFolder;
+        }
+
+        if (!fallbackClassFolder) {
+          fallbackClassFolder = classFolder;
+        }
+      }
+    }
+
+    return fallbackClassFolder;
+  } catch (e) {
+    Logger.log(`⚠️ Cannot locate class folder for ${classname}: ${e.message}`);
+    return null;
+  }
 }
 
 /**
@@ -1544,7 +1791,12 @@ function updateClassFolderStructure(classname, obj) {
   if (oldTemplates.hasNext()) {
     templateFolder = oldTemplates.next();
     // Lấy cấu trúc cũ VỚI ID để detect rename chính xác
-    oldTemplateStructure = collectFolderIds(templateFolder).children || [];
+    try {
+      oldTemplateStructure = collectFolderIds(templateFolder).children || [];
+    } catch (e) {
+      Logger.log(`⚠️ Cannot collect template folder structure: ${e.message}`);
+      oldTemplateStructure = [];
+    }
     Logger.log("✅ Tìm thấy template hiện có");
   } else {
     templateFolder = classFolder.createFolder("_template");
@@ -1575,7 +1827,12 @@ function updateClassFolderStructure(classname, obj) {
     const groupFolder = groupFolders.next();
 
     // Lấy cấu trúc cũ của group VỚI ID
-    const oldGroupStructure = collectFolderIds(groupFolder).children || [];
+    let oldGroupStructure = [];
+    try {
+      oldGroupStructure = collectFolderIds(groupFolder).children || [];
+    } catch (e) {
+      Logger.log(`⚠️ Cannot collect folder structure for ${groupName}: ${e.message}`);
+    }
 
     // Sync cấu trúc
     try {

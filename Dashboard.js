@@ -99,7 +99,14 @@ function UpdateDashBoard() {
       }
 
       // Đếm file trong folder
-      const files = folderInfo.folder.getFiles();
+      let files = null;
+      try {
+        files = driveWithRetry(() => folderInfo.folder.getFiles(), `getFiles:${classname}/${groupname}/${assignment}`);
+      } catch (e) {
+        Logger.log(`⚠️ Cannot list files in folder ${classname}/${groupname}/${assignment}: ${e.message}`);
+        updateValues[i - 1] = [dueDay, "Drive error", "", "", "☐"];
+        continue;
+      }
       const fileList = [];
       while (files.hasNext()) {
         const file = files.next();
@@ -266,22 +273,16 @@ function UpdateDashBoard() {
  */
 function findGroupAssignmentFolder(classname, groupname, assignmentName) {
   try {
-    const rootFolder = DriveApp.getFoldersByName("userprofile");
-    if (!rootFolder.hasNext()) {
-      Logger.log("⚠️ Không tìm thấy folder 'userprofile'");
-      return null;
-    }
+    const classFolder = typeof findClassProfileFolder === "function"
+      ? findClassProfileFolder(classname, [groupname])
+      : null;
 
-    const profileFolder = rootFolder.next();
-    const classIter = profileFolder.getFoldersByName(classname);
-
-    if (!classIter.hasNext()) {
+    if (!classFolder) {
       Logger.log(`⚠️ Không tìm thấy class folder: ${classname}`);
       return null;
     }
 
-    const classFolder = classIter.next();
-    const groupIter = classFolder.getFoldersByName(groupname);
+    const groupIter = driveWithRetry(() => classFolder.getFoldersByName(groupname), `getFoldersByName:${classname}/${groupname}`);
 
     if (!groupIter.hasNext()) {
       Logger.log(`⚠️ Không tìm thấy group folder: ${groupname}`);
@@ -310,17 +311,25 @@ function findGroupAssignmentFolder(classname, groupname, assignmentName) {
  * Tìm folder theo tên trong cây thư mục (đệ quy)
  */
 function findFolderRecursive(parentFolder, targetName) {
-  const folders = parentFolder.getFolders();
+  try {
+    const folders = driveWithRetry(() => parentFolder.getFolders(), `getFolders:${parentFolder.getId()}`);
 
-  while (folders.hasNext()) {
-    const folder = folders.next();
-    if (folder.getName() === targetName) {
-      return folder;
+    while (folders.hasNext()) {
+      try {
+        const folder = folders.next();
+        if (folder.getName() === targetName) {
+          return folder;
+        }
+
+        // Tìm trong subfolder
+        const found = findFolderRecursive(folder, targetName);
+        if (found) return found;
+      } catch (e) {
+        Logger.log(`⚠️ Skip unreadable folder while searching ${targetName}: ${e.message}`);
+      }
     }
-
-    // Tìm trong subfolder
-    const found = findFolderRecursive(folder, targetName);
-    if (found) return found;
+  } catch (e) {
+    Logger.log(`⚠️ Cannot list folders while searching ${targetName}: ${e.message}`);
   }
 
   return null;

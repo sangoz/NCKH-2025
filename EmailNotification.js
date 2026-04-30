@@ -1571,7 +1571,8 @@ function getSpreadsheetParent() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const file = DriveApp.getFileById(ss.getId());
-    return file.getParents().next();
+    const parents = file.getParents();
+    return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
   } catch (e) {
     Logger.log(`Error getting spreadsheet parent: ${e.message}`);
     return DriveApp.getRootFolder();
@@ -1591,7 +1592,7 @@ function getOrCreateFolder(parent, name) {
     }
   } catch (e) {
     Logger.log(`Error creating folder ${name}: ${e.message}`);
-    return parent;
+    return null;
   }
 }
 

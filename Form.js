@@ -106,11 +106,19 @@ function buildForm(subject, classCode, deadline, notes) {
 
     // --- Move form into the subfolder ---
     const formFile = DriveApp.getFileById(formId);
-    formFile.moveTo(formFolder);
+    try {
+      exponentialBackoff(() => formFile.moveTo(formFolder), `moveTo:form:${formId}`);
+    } catch (e) {
+      Logger.log(`Failed to move form file into folder: ${e.message}`);
+    }
 
     // Move response sheet into the same subfolder
     const responseFile = DriveApp.getFileById(responseSs.getId());
-    responseFile.moveTo(formFolder);
+    try {
+      exponentialBackoff(() => responseFile.moveTo(formFolder), `moveTo:response:${responseSs.getId()}`);
+    } catch (e) {
+      Logger.log(`Failed to move response file into folder: ${e.message}`);
+    }
 
     folderUrl = formFolder.getUrl();
   } catch (e) {
