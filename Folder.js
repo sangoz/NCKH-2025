@@ -1150,6 +1150,9 @@ function writeDashboardSheet(classname) {
 
     Logger.log(`🗑️ Đã xóa ${rowsToDelete.length} rows cũ của class ${classname} trong Dashboard`);
 
+    // Force Sheets to flush all pending delete operations before calculating startRow
+    SpreadsheetApp.flush();
+
     // 3) Build rows mới
     const allNewRows = [];
     const assignmentLinksToSet = [];
@@ -1169,26 +1172,8 @@ function writeDashboardSheet(classname) {
       }
 
       function traverse(node, level = 0) {
-        // Add a row for the group root so Dashboard shows something even without assignments
-        if (level === 0) {
-          const row = Array(header.length).fill("");
-          row[0] = classname;
-          row[1] = info.name;
-          row[2] = ""; // Assignment name empty for group root
-          row[3] = ""; // Due day
-          row[4] = ""; // Submission status
-          row[5] = ""; // Extension requirement
-          row[6] = ""; // Last submission
-          row[7] = ""; // Overdue
-
-          const rowIndex = allNewRows.length;
-          allNewRows.push(row);
-
-          // Set group link for this root row
-          if (groupFolderId) {
-            groupLinksToSet.push({ row: rowIndex, col: 1, name: info.name, folderId: groupFolderId });
-          }
-        } else {
+        // Bỏ qua dòng "group root" - chỉ tạo dòng cho các assignment (level > 0)
+        if (level > 0) {
           // Lấy TẤT CẢ các folders (trừ root level)
           const row = Array(header.length).fill("");
           row[0] = classname;

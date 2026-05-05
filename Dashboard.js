@@ -40,16 +40,11 @@ function UpdateDashBoard() {
     Logger.log(`📊 Đang xử lý ${dashboardData.length - 1} dòng trong Dashboard...`);
 
     // Khởi tạo mảng kết quả cho batch write (tránh ghi cell-by-cell)
+    // Khởi tạo bằng trống để tránh ghi dữ liệu cũ vào dòng không hợp lệ
     const numRows = dashboardData.length - 1;
     const updateValues = [];
     for (let r = 0; r < numRows; r++) {
-      updateValues.push([
-        dashboardData[r + 1][dueDayIdx] || '',
-        dashboardData[r + 1][submissionStatusIdx] || '',
-        dashboardData[r + 1][extensionReqIdx] || '',
-        dashboardData[r + 1][lastSubmissionIdx] || '',
-        dashboardData[r + 1][overdueIdx] || ''
-      ]);
+      updateValues.push(['', '', '', '', '']);
     }
 
     // Process từng dòng (bỏ qua header)
